@@ -1,0 +1,43 @@
+services:
+  # ── AI Workspace (always runs) ─────────────────────────────────────────────
+  workspace:
+    build: .
+    ports:
+      - "${WORKSPACE_PORT:-8000}:8000"
+    environment:
+      - PROVIDER=${PROVIDER:-ollama}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5-coder:7b}
+    volumes:
+      - ./workspace:/app/workspace
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Ollama (optional — enable with --profile ollama) ──────────────────────
+  # Usage: docker compose --profile ollama up
+  # After first start, pull your model:
+  #   docker compose exec ollama ollama pull qwen2.5-coder:7b
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    profiles:
+      - ollama
+
+volumes:
+  ollama_data:
