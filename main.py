@@ -265,11 +265,19 @@ Examples:
                         help="Workspace directory (default: ./workspace)")
     parser.add_argument("--platform", choices=["slack", "discord", "telegram"],
                         help="Run as a bot on the specified platform")
+    parser.add_argument("--web", action="store_true",
+                        help="Start the Mission Control web dashboard")
+    parser.add_argument("--host", default="0.0.0.0", help="Web server host (default: 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=8000, help="Web server port (default: 8000)")
     args = parser.parse_args()
 
     config = Config()
     workspace = Workspace(Path(args.workspace))
     workspace.init()
+
+    if args.web:
+        _run_web(config, workspace, args.host, args.port)
+        return
 
     force_model = MODEL_ALIASES.get(args.model) if args.model else None
     console = WorkspaceConsole(config, workspace, force_model=force_model)
@@ -280,6 +288,18 @@ Examples:
         console._run_task(args.task)
     else:
         console.run_repl()
+
+
+def _run_web(config, workspace, host: str, port: int) -> None:
+    try:
+        import uvicorn
+    except ImportError:
+        print("Install uvicorn: pip install uvicorn[standard]", file=sys.stderr)
+        sys.exit(1)
+    from web.server import create_app
+    app = create_app(config, workspace)
+    print(f"Mission Control → http://{host}:{port}")
+    uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
 def _run_platform(console: WorkspaceConsole, platform_name: str, config: Config) -> None:

@@ -2,7 +2,7 @@ from pathlib import Path
 
 WORKSPACE_DIRS = [
     "tasks", "events", "memory", "reports",
-    "agents", "workflows", "vault", "scripts", "dashboards",
+    "agents", "workflows", "vault", "scripts", "dashboards", "chats",
 ]
 
 # Agent names that get starter .md files on first init

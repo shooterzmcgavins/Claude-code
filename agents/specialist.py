@@ -100,9 +100,12 @@ class SpecialistAgent(BaseAgent):
                 if block.type == "text" and block.text:
                     print(f"\n  {self.role}: {block.text}", flush=True)
                     final_text = block.text
+                    self.events.log("agent.message", {"text": block.text}, task_id=task.id, agent=self.role)
                 elif block.type == "tool_use":
                     tool_calls += 1
-                    print(f"  ↳ {block.name}({_summarize_input(block.input)})", flush=True)
+                    summary = _summarize_input(block.input)
+                    print(f"  ↳ {block.name}({summary})", flush=True)
+                    self.events.log("agent.tool_call", {"tool": block.name, "args": summary}, task_id=task.id, agent=self.role)
             if hasattr(message, "usage") and message.usage:
                 input_tokens += getattr(message.usage, "input_tokens", 0) or 0
                 output_tokens += getattr(message.usage, "output_tokens", 0) or 0
@@ -150,6 +153,7 @@ class SpecialistAgent(BaseAgent):
                 final_text = msg.content or ""
                 if final_text:
                     print(f"\n  {self.role}: {final_text}", flush=True)
+                    self.events.log("agent.message", {"text": final_text}, task_id=task.id, agent=self.role)
                 break
 
             for tc in msg.tool_calls:
@@ -159,7 +163,9 @@ class SpecialistAgent(BaseAgent):
                     args = json.loads(tc.function.arguments or "{}")
                 except json.JSONDecodeError:
                     args = {}
-                print(f"  ↳ {fn_name}({_summarize_input(args)})", flush=True)
+                summary = _summarize_input(args)
+                print(f"  ↳ {fn_name}({summary})", flush=True)
+                self.events.log("agent.tool_call", {"tool": fn_name, "args": summary}, task_id=task.id, agent=self.role)
                 fn = tool_fn_map.get(fn_name)
                 result = fn(**args) if fn else f"Unknown tool: {fn_name}"
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": str(result)})
