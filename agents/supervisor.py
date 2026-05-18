@@ -32,20 +32,39 @@ class Supervisor(BaseAgent):
         if best_role and best_count >= 2:
             return best_role
 
-        # Fall back to Haiku classification (cheap, fast)
+        # Fall back to LLM classification
         try:
-            response = self.client.messages.create(
-                model=HAIKU,
-                max_tokens=64,
-                system=self.system_prompt,
-                messages=[{"role": "user", "content": task_description}],
-            )
-            text = next((b.text for b in response.content if b.type == "text"), "")
-            data = json.loads(text)
-            agent = data.get("agent", "builder")
+            if self.config.is_ollama:
+                agent = self._route_ollama(task_description)
+            else:
+                agent = self._route_anthropic(task_description)
             if agent in ROLES:
                 return agent
         except Exception:
             pass
 
         return best_role or "builder"
+
+    def _route_anthropic(self, task_description: str) -> str:
+        response = self.client.messages.create(
+            model=HAIKU,
+            max_tokens=64,
+            system=self.system_prompt,
+            messages=[{"role": "user", "content": task_description}],
+        )
+        text = next((b.text for b in response.content if b.type == "text"), "")
+        return json.loads(text).get("agent", "builder")
+
+    def _route_ollama(self, task_description: str) -> str:
+        from openai import OpenAI
+        client = OpenAI(base_url=f"{self.config.ollama_base_url}/v1", api_key="ollama")
+        response = client.chat.completions.create(
+            model=self.config.ollama_model,
+            max_tokens=64,
+            messages=[
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": task_description},
+            ],
+        )
+        text = response.choices[0].message.content or ""
+        return json.loads(text).get("agent", "builder")

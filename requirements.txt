@@ -1,5 +1,6 @@
 anthropic>=0.40.0
 python-dotenv>=1.0.0
+openai>=1.30.0          # needed for Ollama (OpenAI-compatible API)
 
 # Platform integrations (install only what you need)
 slack-sdk>=3.27.0
