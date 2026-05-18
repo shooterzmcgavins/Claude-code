@@ -45,6 +45,7 @@ inspired by OpenClaw — interactive human-in-the-loop, observable, local-first.
 - [x] Docker: `Dockerfile` + `docker-compose.yml` (Ollama profile)
 - [x] PyInstaller spec for EXE packaging
 - [x] Comprehensive README
+- [x] Startup blockers fixed (TS cleanup type, Git Bash timeout, build status check)
 
 ---
 
@@ -73,7 +74,8 @@ inspired by OpenClaw — interactive human-in-the-loop, observable, local-first.
 - No provider abstraction layer — Anthropic/Ollama paths are code-split inside `specialist.py`
 - Platforms module (Slack/Discord/Telegram) untested with web mode
 - PyInstaller EXE not yet tested end-to-end
-- Frontend build shows TypeScript `strict` warnings (not blocking)
+- Frontend build TS errors: **fixed** (`ws.ts subscribe` now returns `() => void`)
+- `start.bat` false-positive "[OK] Frontend built": **fixed** (errorlevel captured before `cd ..`)
 
 ---
 
@@ -105,7 +107,7 @@ WS   /ws                  → event stream
 
 ## Current Priorities
 
-1. Test full local run on Windows with Ollama
+1. Verify full local run on Windows with Ollama after `git pull` + clean rebuild (`del dashboard\dist` then `start.bat`)
 2. Add streaming support to Chat (SSE or chunked WS events from agent)
 3. Create a clean provider abstraction layer (`providers/base.py`, `providers/ollama.py`, `providers/anthropic.py`)
 4. Add agent memory sidebar to Chat page (show what the agent has written to memory)
@@ -150,7 +152,7 @@ cd dashboard && npm run dev
 
 - **Repo**: `shooterzmcgavins/Claude-code`
 - **Branch**: `claude/openclaw-alternative-DJEL2`
-- **Latest commit**: `dac578b` — Fix TypeScript useEffect cleanup type and Git Bash timeout
+- **Latest commit**: `1fba072` — fix: capture build errorlevel before cd in start.bat
 - **Push command**: `git push -u origin claude/openclaw-alternative-DJEL2`
 
 ---

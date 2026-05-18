@@ -87,6 +87,8 @@ workspace/
 - `timeout /t 2` in `.bat` files fails in Git Bash — Git Bash resolves to `/usr/bin/timeout` (Unix coreutils), not Windows built-in
 - **Fix**: use `ping -n 3 127.0.0.1 >nul 2>&1` for delays in batch files
 - `start.bat` runs via `cmd.exe` even when launched from Git Bash — test both environments
+- `%errorlevel%` is reset by `cd` in batch files — always capture into a variable (`set RESULT=%errorlevel%`) immediately after the command, before any `cd`
+- `npm run build --silent` suppresses build errors from output — remove `--silent` from build step so TypeScript errors are visible; `--silent` on `npm install` is fine
 
 ### Python / FastAPI
 - Agent threads are synchronous; FastAPI runs async. Bridge: capture event loop in `lifespan` via `asyncio.get_event_loop()`, store in `broadcaster._loop`, use `run_coroutine_threadsafe` from agent threads
@@ -108,6 +110,8 @@ workspace/
 | Editing without reading | Agent wrote files without reading them first | Read before every edit |
 | `() => boolean` cleanup | Subscribe return type broke 6 useEffect hooks | Always type cleanup as `() => void` |
 | `timeout /t` in bat | Fails in Git Bash | Use `ping -n` for delays |
+| `%errorlevel%` after `cd` | `cd` resets errorlevel — build check always passed | Capture `set RESULT=%errorlevel%` before `cd ..` |
+| `--silent` on build step | Hid TS errors while reporting success | Only silence `npm install`, never `npm run build` |
 | Not committing promptly | Large uncommitted changesets get lost | Commit after each major feature |
 | Autonomous behavior | User explicitly rejected recursive loops | NO auto-running agents, NO scheduled polling |
 
