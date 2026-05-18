@@ -89,7 +89,7 @@ echo  Starting Mission Control on http://%HOST%:%PORT%
 echo  Press Ctrl+C to stop.
 echo.
 
-:: Open browser after short delay
-start "" /b cmd /c "timeout /t 2 >nul && start http://%HOST%:%PORT%"
+:: Open browser after short delay (use ping for delay — works in both cmd and Git Bash)
+start "" /b cmd /c "ping -n 3 127.0.0.1 >nul 2>&1 & start http://%HOST%:%PORT%"
 
 python main.py --web --host %HOST% --port %PORT%
