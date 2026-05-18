@@ -130,7 +130,11 @@ class SpecialistAgent(BaseAgent):
         client = OpenAI(base_url=f"{self.config.ollama_base_url}/v1", api_key="ollama")
         tool_list = self.tools
         oai_tools = _to_openai_tools(tool_list)
-        tool_fn_map = {t.__name__: t for t in tool_list}
+        # Key the map by the schema name so it matches what Ollama returns in tool calls.
+        tool_fn_map = {
+            s["function"]["name"]: fn
+            for s, fn in zip(oai_tools, tool_list)
+        }
 
         messages = [
             {"role": "system", "content": self.system_prompt},
@@ -147,7 +151,10 @@ class SpecialistAgent(BaseAgent):
 
             response = client.chat.completions.create(**kwargs)
             msg = response.choices[0].message
-            messages.append({"role": "assistant", "content": msg.content, "tool_calls": msg.tool_calls})
+            assistant_msg: dict = {"role": "assistant", "content": msg.content}
+            if msg.tool_calls:
+                assistant_msg["tool_calls"] = msg.tool_calls
+            messages.append(assistant_msg)
 
             if not msg.tool_calls:
                 final_text = msg.content or ""

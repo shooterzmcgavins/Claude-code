@@ -22,7 +22,21 @@ class BaseAgent(ABC):
         self.workspace = workspace
         self.events = events
         self.task_store = task_store
-        self.client = anthropic.Anthropic(api_key=config.api_key)
+        # Only instantiate the Anthropic client when an API key is available.
+        # anthropic.Anthropic(api_key="") raises AuthenticationError at construction
+        # time in SDK ≥0.40, which would immediately kill every task on the Ollama path.
+        self._anthropic_client: Optional[anthropic.Anthropic] = None
+        if config.api_key:
+            self._anthropic_client = anthropic.Anthropic(api_key=config.api_key)
+
+    @property
+    def client(self) -> anthropic.Anthropic:
+        if self._anthropic_client is None:
+            raise RuntimeError(
+                "Anthropic client is not configured. "
+                "Set ANTHROPIC_API_KEY or switch PROVIDER to 'anthropic'."
+            )
+        return self._anthropic_client
 
     @property
     @abstractmethod

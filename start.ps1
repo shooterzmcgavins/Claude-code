@@ -76,13 +76,12 @@ if ($env:WORKSPACE_PORT) { $Port = [int]$env:WORKSPACE_PORT }
 # ── Install Python dependencies ───────────────────────────────────────────────
 Write-Host ""
 Write-Host "  Installing Python dependencies..." -ForegroundColor DarkGray
-try {
-    pip install -r requirements.txt -q --disable-pip-version-check 2>&1 | Out-Null
-    Write-Host "  [OK] Python dependencies installed" -ForegroundColor Green
-} catch {
-    Write-Host "  [ERROR] pip install failed: $_" -ForegroundColor Red
+pip install -r requirements.txt -q --disable-pip-version-check
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "  [ERROR] pip install failed" -ForegroundColor Red
     exit 1
 }
+Write-Host "  [OK] Python dependencies installed" -ForegroundColor Green
 
 # ── Build frontend ────────────────────────────────────────────────────────────
 if (-not $skipBuild) {
@@ -93,8 +92,17 @@ if (-not $skipBuild) {
         Push-Location dashboard
         try {
             npm install --silent 2>&1 | Out-Null
-            npm run build --silent 2>&1 | Out-Null
-            Write-Host "  [OK] Frontend built" -ForegroundColor Green
+            # Do NOT silence build output — TypeScript errors must be visible.
+            # Capture output but check exit code explicitly; try/catch alone won't
+            # catch a non-zero exit from an external command in PowerShell.
+            $buildOut = npm run build 2>&1
+            $buildExit = $LASTEXITCODE
+            if ($buildExit -ne 0) {
+                Write-Host "  [WARN] Frontend build failed (exit $buildExit) — running in API-only mode" -ForegroundColor Yellow
+                $buildOut | Write-Host -ForegroundColor DarkGray
+            } else {
+                Write-Host "  [OK] Frontend built" -ForegroundColor Green
+            }
         } catch {
             Write-Host "  [WARN] Frontend build failed — running in API-only mode" -ForegroundColor Yellow
         } finally {

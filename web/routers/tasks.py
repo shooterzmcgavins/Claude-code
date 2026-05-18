@@ -49,8 +49,7 @@ async def create_task(body: TaskCreate):
     state.event_log.log("task.created", {"title": task.title}, task_id=task.id)
 
     agent_name = body.agent or state.supervisor.route(task.description or task.title)
-    loop = asyncio.get_event_loop()
-    loop.run_in_executor(state.executor, state.run_agent, task.id, agent_name)
+    asyncio.get_running_loop().run_in_executor(state.executor, state.run_agent, task.id, agent_name)
 
     return {**_task_dict(task), "agent": agent_name}
 
@@ -99,6 +98,5 @@ async def retry_task(task_id: str):
         {"title": new_task.title, "retry_of": task_id},
         task_id=new_task.id,
     )
-    loop = asyncio.get_event_loop()
-    loop.run_in_executor(state.executor, state.run_agent, new_task.id, agent_name)
+    asyncio.get_running_loop().run_in_executor(state.executor, state.run_agent, new_task.id, agent_name)
     return {"task_id": new_task.id}
