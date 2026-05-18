@@ -3,7 +3,9 @@ import { api } from '../api'
 import { wsClient } from '../ws'
 import { WsEvent } from '../types'
 
-const AGENTS = ['supervisor', 'builder', 'research', 'planner', 'monitor', 'automation']
+const AGENTS = ['builder', 'research', 'planner', 'monitor', 'automation']
+
+type Mode = 'chat' | 'task'
 
 interface Msg {
   id: string
@@ -23,7 +25,8 @@ export default function Chat() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
-  const [agent, setAgent] = useState('supervisor')
+  const [agent, setAgent] = useState('builder')
+  const [mode, setMode] = useState<Mode>('chat')
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
@@ -38,7 +41,7 @@ export default function Chat() {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Listen for WS events belonging to active task
+  // WS events — only active in task mode while a task is running
   useEffect(() => {
     const unsub = wsClient.subscribe((e: WsEvent) => {
       if (!activeTaskId || e.task_id !== activeTaskId) return
@@ -46,17 +49,17 @@ export default function Chat() {
         push({ role: 'assistant', content: e.text as string, agent: e.agent as string, task_id: e.task_id, ts: e.ts ?? now() })
       }
       if (e.type === 'agent.tool_call') {
-        push({ role: 'tool', content: `↳ ${e.tool}(${e.args})`, agent: e.agent as string, task_id: e.task_id, ts: e.ts ?? now() })
+        push({ role: 'tool', content: `tool: ${e.tool}(${e.args})`, agent: e.agent as string, task_id: e.task_id, ts: e.ts ?? now() })
       }
       if (e.type === 'approval.pending') {
-        push({ role: 'system', content: `⚠ Shell command approval needed: \`${e.command}\` — see Approvals page`, ts: now() })
+        push({ role: 'system', content: `Approval needed: ${e.command} — see Approvals page`, ts: now() })
       }
       if (e.type === 'task.complete') {
         setActiveTaskId(null)
         setSending(false)
       }
       if (e.type === 'task.failed') {
-        push({ role: 'system', content: `✗ Task failed`, ts: now() })
+        push({ role: 'system', content: 'Task failed', ts: now() })
         setActiveTaskId(null)
         setSending(false)
       }
@@ -91,15 +94,22 @@ export default function Chat() {
     if (!text || sending) return
     setInput('')
     setSending(true)
-
     push({ role: 'user', content: text, ts: now() })
 
     try {
-      const res = await api.chat.send(text, agent === 'supervisor' ? undefined : agent, sessionId ?? undefined)
+      const res = await api.chat.send(text, agent, sessionId ?? undefined, mode)
       setSessionId(res.session_id)
-      setActiveTaskId(res.task_id)
-      push({ role: 'system', content: `Routing to ${res.agent} → ${res.task_id}`, ts: now() })
-      // Refresh sessions list
+
+      if (mode === 'chat') {
+        // Direct reply — already have the response
+        push({ role: 'assistant', content: res.reply ?? '(no response)', agent: res.agent, ts: now() })
+        setSending(false)
+      } else {
+        // Task mode — wait for WS events
+        setActiveTaskId(res.task_id)
+        push({ role: 'system', content: `Task ${res.task_id} routed to ${res.agent}`, ts: now() })
+      }
+
       api.chat.sessions().then(setSessions).catch(() => {})
     } catch (err: any) {
       push({ role: 'system', content: `Error: ${err.message}`, ts: now() })
@@ -133,10 +143,27 @@ export default function Chat() {
         </div>
       </div>
 
-      {/* Main chat */}
+      {/* Main chat area */}
       <div className="flex flex-col flex-1 overflow-hidden">
-        {/* Agent selector */}
+        {/* Toolbar: mode toggle + agent selector */}
         <div className="flex items-center gap-3 px-4 py-2 border-b border-slate-800 bg-slate-900/50 shrink-0">
+          {/* Mode toggle */}
+          <div className="flex items-center bg-slate-800 rounded p-0.5 gap-0.5">
+            <button
+              onClick={() => { setMode('chat'); setActiveTaskId(null) }}
+              className={`px-3 py-1 rounded text-xs transition-colors ${mode === 'chat' ? 'bg-cyan-800 text-cyan-100' : 'text-slate-400 hover:text-slate-300'}`}
+            >
+              Chat
+            </button>
+            <button
+              onClick={() => setMode('task')}
+              className={`px-3 py-1 rounded text-xs transition-colors ${mode === 'task' ? 'bg-cyan-800 text-cyan-100' : 'text-slate-400 hover:text-slate-300'}`}
+            >
+              Task
+            </button>
+          </div>
+
+          {/* Agent selector */}
           <span className="text-xs text-slate-500">Agent:</span>
           <select
             value={agent}
@@ -145,7 +172,11 @@ export default function Chat() {
           >
             {AGENTS.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
-          {activeTaskId && (
+
+          {mode === 'chat' && (
+            <span className="text-xs text-slate-600 ml-auto">direct reply · no task created</span>
+          )}
+          {mode === 'task' && activeTaskId && (
             <span className="text-xs text-cyan-400 animate-pulse ml-auto">{activeTaskId} running…</span>
           )}
         </div>
@@ -154,7 +185,9 @@ export default function Chat() {
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {messages.length === 0 && (
             <div className="text-slate-600 text-sm text-center mt-20">
-              Start a conversation — submit a task or ask a question
+              {mode === 'chat'
+                ? 'Chat mode — ask anything, get a direct reply'
+                : 'Task mode — describe a task to create a tracked job'}
             </div>
           )}
           {messages.map(m => (
@@ -165,10 +198,10 @@ export default function Chat() {
                 </div>
               )}
               <div className={`max-w-[80%] rounded px-3 py-2 text-xs leading-relaxed ${
-                m.role === 'user' ? 'bg-cyan-950 border border-cyan-800 text-cyan-100 ml-auto' :
-                m.role === 'tool' ? 'bg-slate-900 border border-slate-800 text-amber-300 font-mono' :
-                m.role === 'system' ? 'bg-slate-900/50 text-slate-500 italic text-center w-full max-w-full' :
-                'bg-slate-800 border border-slate-700 text-slate-200'
+                m.role === 'user'      ? 'bg-cyan-950 border border-cyan-800 text-cyan-100 ml-auto' :
+                m.role === 'tool'      ? 'bg-slate-900 border border-slate-800 text-amber-300 font-mono' :
+                m.role === 'system'    ? 'bg-slate-900/50 text-slate-500 italic text-center w-full max-w-full' :
+                                         'bg-slate-800 border border-slate-700 text-slate-200'
               }`}>
                 {m.role === 'assistant' && m.agent && (
                   <div className="text-purple-400 text-xs mb-1">{m.agent}</div>
@@ -188,7 +221,7 @@ export default function Chat() {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={onKey}
-              placeholder="Type a task or question… (Enter to send, Shift+Enter for newline)"
+              placeholder={mode === 'chat' ? 'Ask anything… (Enter to send)' : 'Describe a task… (Enter to send)'}
               rows={2}
               className="flex-1 bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded px-3 py-2 resize-none outline-none focus:border-cyan-700 placeholder-slate-600"
             />
@@ -197,7 +230,7 @@ export default function Chat() {
               disabled={sending || !input.trim()}
               className="px-4 bg-cyan-800 hover:bg-cyan-700 disabled:bg-slate-800 disabled:text-slate-600 text-cyan-100 rounded text-xs transition-colors shrink-0"
             >
-              {sending ? '…' : 'Send'}
+              {sending ? '…' : mode === 'chat' ? 'Send' : 'Create Task'}
             </button>
           </div>
           <div className="text-slate-600 text-xs mt-1">Enter to send · Shift+Enter for newline</div>

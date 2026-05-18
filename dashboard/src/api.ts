@@ -84,8 +84,8 @@ export const api = {
       post<any>(`/approvals/${id}/resolve`, { approved }),
   },
   chat: {
-    send: (message: string, agent?: string, session_id?: string) =>
-      post<any>('/chat', { message, agent, session_id }),
+    send: (message: string, agent?: string, session_id?: string, mode = 'chat') =>
+      post<any>('/chat', { message, agent, session_id, mode }),
     sessions: () => get<any[]>('/chat/sessions'),
     session: (id: string) => get<any>(`/chat/sessions/${id}`),
   },

@@ -10,18 +10,19 @@ echo  +----------------------------------------------+
 echo.
 
 :: ------------------------------------------------------------------
-:: Check Python
+:: Check Python launcher (py)
 :: ------------------------------------------------------------------
-python --version >nul 2>&1
+py --version >nul 2>&1
 if !ERRORLEVEL! neq 0 (
-    echo  [ERROR] Python not found. Install Python 3.11+ from https://python.org
+    echo  [ERROR] Python launcher "py" not found.
+    echo         Install Python 3.11+ from https://python.org
     goto :error
 )
-for /f "tokens=2" %%v in ('python --version 2^>^&1') do set PYVER=%%v
+for /f "tokens=2" %%v in ('py --version 2^>^&1') do set PYVER=%%v
 echo  [OK] Python !PYVER!
 
 :: ------------------------------------------------------------------
-:: Check Node (required for Vite dev server)
+:: Check Node
 :: ------------------------------------------------------------------
 node --version >nul 2>&1
 if !ERRORLEVEL! neq 0 (
@@ -32,12 +33,12 @@ for /f %%v in ('node --version 2^>^&1') do set NODEVER=%%v
 echo  [OK] Node !NODEVER!
 
 :: ------------------------------------------------------------------
-:: Check Ollama
+:: Check Ollama (optional — warn only)
 :: ------------------------------------------------------------------
 ollama --version >nul 2>&1
 if !ERRORLEVEL! neq 0 (
     echo  [WARN] Ollama not found - install from https://ollama.ai
-    echo         You can still use PROVIDER=anthropic if you have an API key.
+    echo         Set PROVIDER=anthropic if using Anthropic instead.
 ) else (
     echo  [OK] Ollama found
 )
@@ -47,7 +48,7 @@ if !ERRORLEVEL! neq 0 (
 :: ------------------------------------------------------------------
 echo.
 echo  Installing Python dependencies...
-pip install -r requirements.txt -q --disable-pip-version-check
+py -m pip install -r requirements.txt -q --disable-pip-version-check
 if !ERRORLEVEL! neq 0 (
     echo  [ERROR] pip install failed
     goto :error
@@ -87,69 +88,68 @@ if exist ".env" (
 )
 
 :: ------------------------------------------------------------------
-:: Start backend (new window, stays open)
+:: Start backend first — visible titled window, stays open on error
 :: ------------------------------------------------------------------
 set BACKEND_PORT=8000
 if defined WORKSPACE_PORT set BACKEND_PORT=!WORKSPACE_PORT!
 
 echo.
-echo  Starting backend on port !BACKEND_PORT!...
-start "AI Workspace - Backend" python main.py --web --host 127.0.0.1 --port !BACKEND_PORT!
+echo  Starting backend on port %BACKEND_PORT%...
+start "AI Workspace - Backend" cmd /k "py main.py --web --host 127.0.0.1 --port %BACKEND_PORT%"
 if !ERRORLEVEL! neq 0 (
-    echo  [ERROR] Failed to launch backend window
+    echo  [ERROR] Failed to open backend window
     goto :error
 )
 echo  [OK] Backend window opened
 
 :: ------------------------------------------------------------------
-:: Start frontend Vite dev server (new window, stays open via cmd /k)
-:: pushd/popd sets CWD for the child process without nested quote issues
+:: Wait for backend health endpoint to respond (up to 30 seconds).
+:: Uses PowerShell Invoke-WebRequest; exits 0 on first 200 response.
+:: %BACKEND_PORT% is safe here — top-level line, not inside a block.
 :: ------------------------------------------------------------------
+echo  Waiting for backend health check (http://127.0.0.1:%BACKEND_PORT%/api/health)...
+powershell -nologo -noprofile -command "for($i=0;$i-lt30;$i++){try{if((iwr 'http://127.0.0.1:%BACKEND_PORT%/api/health' -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200){exit 0}}catch{};Start-Sleep 1};exit 1" 2>nul
+if !ERRORLEVEL! neq 0 (
+    echo  [ERROR] Backend did not respond within 30 seconds.
+    echo         Check the backend window for startup errors.
+    goto :error
+)
+echo  [OK] Backend healthy
+
+:: ------------------------------------------------------------------
+:: Start frontend dev server — visible titled window
+:: pushd sets CWD so cmd /k gets the right directory without
+:: nested-quote path issues.
+:: ------------------------------------------------------------------
+echo.
 echo  Starting frontend dev server...
 pushd "%~dp0dashboard"
 start "AI Workspace - Frontend" cmd /k "npm run dev"
 set FRONT_LAUNCH=!ERRORLEVEL!
 popd
 if !FRONT_LAUNCH! neq 0 (
-    echo  [ERROR] Failed to launch frontend window
+    echo  [ERROR] Failed to open frontend window
     goto :error
 )
 echo  [OK] Frontend window opened
 
 :: ------------------------------------------------------------------
-:: Detect Vite's actual port (5173 or 5174) via PowerShell TCP probe.
-:: Vite auto-increments when 5173 is busy. PowerShell polls up to 15s.
-:: Result is written to a temp file to avoid exit-code smuggling tricks.
+:: Wait for Vite to initialize then open browser.
+:: Vite config sets port 5173; ping -n 5 gives ~4s startup grace.
 :: ------------------------------------------------------------------
-echo  Detecting frontend port...
-set "VITE_PORT_FILE=%TEMP%\ai_ws_vite_port.tmp"
-if exist "!VITE_PORT_FILE!" del "!VITE_PORT_FILE!" >nul 2>&1
+echo  Waiting for Vite to initialize...
+ping -n 5 127.0.0.1 >nul 2>&1
 
-powershell -nologo -noprofile -command ^
-  "for ($i=0;$i-lt15;$i++){foreach($p in 5173,5174){try{$t=New-Object Net.Sockets.TcpClient;$ar=$t.BeginConnect('127.0.0.1',$p,$null,$null);if($ar.AsyncWaitHandle.WaitOne(400)){$t.EndConnect($ar);$t.Close();[IO.File]::WriteAllText($env:VITE_PORT_FILE,$p.ToString());exit}; try{$t.Close()}catch{}}catch{}};Start-Sleep 1}" ^
-  2>nul
-
-set FRONTEND_PORT=5173
-if exist "!VITE_PORT_FILE!" (
-    set /p FRONTEND_PORT=<"!VITE_PORT_FILE!"
-    del "!VITE_PORT_FILE!" >nul 2>&1
-) else (
-    echo  [WARN] Vite port detection timed out - defaulting to 5173
-)
-
-:: ------------------------------------------------------------------
-:: Open browser at the detected frontend URL
-:: ------------------------------------------------------------------
-set FRONTEND_URL=http://127.0.0.1:!FRONTEND_PORT!
+set FRONTEND_URL=http://localhost:5173
 echo.
-echo  [OK] Backend  : http://127.0.0.1:!BACKEND_PORT!  (API + WS)
-echo  [OK] Frontend : !FRONTEND_URL!   (Vite dev server)
+echo  [OK] Backend  : http://127.0.0.1:%BACKEND_PORT%
+echo  [OK] Frontend : %FRONTEND_URL%
 echo.
-echo  Both services are running in separate windows.
+echo  Both services are running in their own windows.
 echo  Close those windows to stop the services.
 echo.
 
-start "" "!FRONTEND_URL!"
+start "" "%FRONTEND_URL%"
 goto :eof
 
 :: ------------------------------------------------------------------
