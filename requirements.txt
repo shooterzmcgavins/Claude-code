@@ -1,8 +1,8 @@
 anthropic>=0.40.0
 python-dotenv>=1.0.0
-aiohttp>=3.9.0
 
 # Platform integrations (install only what you need)
 slack-sdk>=3.27.0
+slack-bolt>=1.18.0
 discord.py>=2.3.0
 python-telegram-bot>=21.0
