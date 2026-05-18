@@ -1,3 +1,5 @@
+import { HealthStatus, Settings, FileEntry } from './types'
+
 const BASE = '/api'
 
 async function get<T>(path: string): Promise<T> {
@@ -28,11 +30,29 @@ async function put<T>(path: string, body: unknown): Promise<T> {
 
 export const api = {
   overview: () => get<any>('/chat/overview'),
+  health: {
+    get: () => get<HealthStatus>('/health'),
+  },
+  settings: {
+    get: () => get<Settings>('/settings'),
+    update: (data: Partial<Settings> & { anthropic_api_key?: string }) => post('/settings', data),
+  },
+  files: {
+    list: (path = '.') => get<{ path: string; entries: FileEntry[] }>(`/files?path=${encodeURIComponent(path)}`),
+    read: (path: string) => get<{ path: string; content: string }>(`/files/read?path=${encodeURIComponent(path)}`),
+    write: (path: string, content: string) => post('/files/write', { path, content }),
+    delete: (path: string) => post('/files/delete', { path }),
+    rename: (from_path: string, to_path: string) => post('/files/rename', { from_path, to_path }),
+    create: (path: string, type: 'file' | 'dir', content = '') => post('/files/create', { path, type, content }),
+  },
   tasks: {
     list: (status?: string) => get<any[]>(`/tasks${status ? `?status=${status}` : ''}`),
     get: (id: string) => get<any>(`/tasks/${id}`),
     create: (title: string, description?: string, agent?: string) =>
       post<any>('/tasks', { title, description: description ?? title, agent }),
+    cancel: (id: string) => post<{ ok: boolean }>(`/tasks/${id}/cancel`, {}),
+    retry: (id: string) => post<{ task_id: string }>(`/tasks/${id}/retry`, {}),
+    archive: (id: string) => post<{ ok: boolean }>(`/tasks/${id}/archive`, {}),
   },
   agents: {
     list: () => get<any[]>('/agents'),

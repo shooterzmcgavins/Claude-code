@@ -6,6 +6,7 @@ const STYLES: Record<string, string> = {
   needs_approval:   'bg-amber-950 text-amber-400 border-amber-800',
   complete:         'bg-emerald-950 text-emerald-400 border-emerald-800',
   failed:           'bg-red-950 text-red-400 border-red-800',
+  archived:         'bg-slate-900 text-slate-500 border-slate-700',
 }
 
 export default function StatusBadge({ status }: { status: string }) {

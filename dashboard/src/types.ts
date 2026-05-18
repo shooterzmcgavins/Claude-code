@@ -1,4 +1,33 @@
-export type TaskStatus = 'pending' | 'in_progress' | 'needs_approval' | 'complete' | 'failed'
+export type TaskStatus = 'pending' | 'in_progress' | 'needs_approval' | 'complete' | 'failed' | 'archived'
+
+export interface HealthStatus {
+  status: 'ok' | 'error'
+  provider: string
+  ollama_connected: boolean
+  ollama_model: string
+  ollama_model_available: boolean
+  anthropic_key_set: boolean
+  workspace_path: string
+  workspace_exists: boolean
+  issues: string[]
+}
+
+export interface Settings {
+  provider: string
+  ollama_base_url: string
+  ollama_model: string
+  anthropic_api_key_set: boolean
+  max_tokens: number
+}
+
+export interface FileEntry {
+  name: string
+  path: string
+  type: 'file' | 'dir'
+  size: number
+  modified: number
+  ext: string
+}
 
 export interface Task {
   id: string

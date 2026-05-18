@@ -10,6 +10,9 @@ import Reports from './pages/Reports'
 import Memory from './pages/Memory'
 import Models from './pages/Models'
 import Approvals from './pages/Approvals'
+import Health from './pages/Health'
+import SettingsPage from './pages/Settings'
+import Files from './pages/Files'
 import { wsClient } from './ws'
 import { WsEvent } from './types'
 
@@ -42,6 +45,9 @@ export default function App() {
           <Route path="memory" element={<Memory />} />
           <Route path="models" element={<Models />} />
           <Route path="approvals" element={<Approvals setPendingApprovals={setPendingApprovals} />} />
+          <Route path="health" element={<Health />} />
+          <Route path="files" element={<Files />} />
+          <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

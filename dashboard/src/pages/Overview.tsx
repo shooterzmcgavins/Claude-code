@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { wsClient } from '../ws'
+import { HealthStatus } from '../types'
 
 function fmtUptime(s: number) {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60
@@ -20,11 +21,13 @@ function StatCard({ label, value, color }: { label: string; value: number | stri
 export default function Overview() {
   const [data, setData] = useState<any>(null)
   const [recentEvents, setRecentEvents] = useState<any[]>([])
+  const [health, setHealth] = useState<HealthStatus | null>(null)
   const navigate = useNavigate()
 
   const load = () => {
     api.overview().then(setData).catch(() => {})
     api.events.list(10).then(setRecentEvents).catch(() => {})
+    api.health.get().then(setHealth).catch(() => {})
   }
 
   useEffect(() => {
@@ -61,6 +64,18 @@ export default function Overview() {
         <StatCard label="Total Tasks" value={data?.total_tasks ?? 0} color="border-slate-700" />
         <StatCard label="Events Logged" value={data?.event_count ?? 0} color="border-slate-700" />
       </div>
+
+      {health && (
+        <div className="bg-slate-900 border border-slate-800 rounded p-4">
+          <div className="text-slate-500 text-xs uppercase tracking-widest mb-2">Runtime</div>
+          <div className="text-sm text-slate-300">
+            {health.provider} · {health.provider === 'ollama' ? health.ollama_model : 'anthropic'}
+          </div>
+          <div className={`text-xs mt-1 ${health.status === 'ok' ? 'text-emerald-400' : 'text-red-400'}`}>
+            {health.status === 'ok' ? '✓ ready' : `⚠ ${health.issues?.[0]}`}
+          </div>
+        </div>
+      )}
 
       {/* Recent events */}
       <div>

@@ -2,14 +2,17 @@ import { NavLink } from 'react-router-dom'
 
 const NAV = [
   { to: '/overview', icon: '⬡', label: 'Overview' },
+  { to: '/health',   icon: '◎', label: 'Health' },
   { to: '/chat',     icon: '◈', label: 'Chat' },
   { to: '/tasks',    icon: '◻', label: 'Tasks' },
   { to: '/agents',   icon: '◇', label: 'Agents' },
   { to: '/events',   icon: '≋', label: 'Events' },
   { to: '/reports',  icon: '◈', label: 'Reports' },
+  { to: '/files',    icon: '📁', label: 'Files' },
   { to: '/memory',   icon: '○', label: 'Memory' },
   { to: '/models',   icon: '◆', label: 'Models' },
   { to: '/approvals',icon: '⚠', label: 'Approvals' },
+  { to: '/settings', icon: '⚙', label: 'Settings' },
 ]
 
 interface Props { pendingApprovals: number }

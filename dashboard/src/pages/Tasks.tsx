@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { wsClient } from '../ws'
 import StatusBadge from '../components/StatusBadge'
@@ -8,8 +9,38 @@ export default function Tasks() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [filter, setFilter] = useState('')
   const [selected, setSelected] = useState<Task | null>(null)
+  const navigate = useNavigate()
 
   const load = () => api.tasks.list().then(setTasks).catch(() => {})
+
+  const handleCancel = async (id: string) => {
+    try {
+      await api.tasks.cancel(id)
+      load()
+    } catch (e: any) {
+      alert('Cancel failed: ' + e.message)
+    }
+  }
+
+  const handleRetry = async (id: string) => {
+    try {
+      const result = await api.tasks.retry(id)
+      load()
+      navigate('/overview')
+    } catch (e: any) {
+      alert('Retry failed: ' + e.message)
+    }
+  }
+
+  const handleArchive = async (id: string) => {
+    try {
+      await api.tasks.archive(id)
+      load()
+      setSelected(null)
+    } catch (e: any) {
+      alert('Archive failed: ' + e.message)
+    }
+  }
 
   useEffect(() => {
     load()
@@ -28,13 +59,28 @@ export default function Tasks() {
     <div className="flex h-full">
       {/* List */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex items-center gap-3 p-4 border-b border-slate-800 shrink-0">
+        <div className="flex items-center gap-3 p-4 border-b border-slate-800 shrink-0 flex-wrap">
           <h1 className="text-cyan-400 text-sm font-bold uppercase tracking-widest">Tasks</h1>
+          <div className="flex gap-1 flex-wrap">
+            {['', 'pending', 'in_progress', 'needs_approval', 'complete', 'failed', 'archived'].map(s => (
+              <button
+                key={s}
+                onClick={() => setFilter(s)}
+                className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+                  filter === s
+                    ? 'bg-cyan-900/50 border-cyan-700 text-cyan-300'
+                    : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {s || 'all'}
+              </button>
+            ))}
+          </div>
           <input
             value={filter}
             onChange={e => setFilter(e.target.value)}
-            placeholder="filter by status, agent, or title…"
-            className="ml-auto bg-slate-800 border border-slate-700 text-slate-300 text-xs rounded px-3 py-1.5 outline-none w-64 focus:border-cyan-700 placeholder-slate-600"
+            placeholder="filter by agent or title…"
+            className="ml-auto bg-slate-800 border border-slate-700 text-slate-300 text-xs rounded px-3 py-1.5 outline-none w-52 focus:border-cyan-700 placeholder-slate-600"
           />
         </div>
 
@@ -106,6 +152,23 @@ export default function Tasks() {
                 View Report →
               </a>
             )}
+            <div className="flex gap-2 pt-4 border-t border-slate-800">
+              {(selected.status === 'pending' || selected.status === 'in_progress') && (
+                <button onClick={() => handleCancel(selected.id)} className="text-xs px-3 py-1.5 bg-red-950/50 border border-red-800 text-red-400 rounded hover:bg-red-950">
+                  Cancel
+                </button>
+              )}
+              {(selected.status === 'failed' || selected.status === 'complete') && (
+                <button onClick={() => handleRetry(selected.id)} className="text-xs px-3 py-1.5 bg-slate-800 border border-slate-700 text-slate-300 rounded hover:bg-slate-700">
+                  Retry
+                </button>
+              )}
+              {(selected.status === 'failed' || selected.status === 'complete') && (
+                <button onClick={() => handleArchive(selected.id)} className="text-xs px-3 py-1.5 bg-slate-900 border border-slate-700 text-slate-500 rounded hover:bg-slate-800">
+                  Archive
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
