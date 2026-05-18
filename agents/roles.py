@@ -33,7 +33,7 @@ DEFAULT_KEYWORDS: dict[str, list[str]] = {
 }
 
 # Canonical agent names — used for validation and discovery
-AGENT_NAMES = list(DEFAULT_KEYWORDS.keys())
+AGENT_NAMES = ["supervisor"] + list(DEFAULT_KEYWORDS.keys())
 
 SUPERVISOR_FALLBACK_PROMPT = """\
 You are the workspace supervisor. Route the request to the best specialist agent.
