@@ -56,9 +56,10 @@ if not defined SKIP_BUILD (
         echo  Building frontend...
         cd dashboard
         call npm install --silent
-        call npm run build --silent
+        call npm run build
+        set BUILD_RESULT=%errorlevel%
         cd ..
-        if %errorlevel% neq 0 (
+        if %BUILD_RESULT% neq 0 (
             echo  [WARN] Frontend build failed - running in API-only mode
         ) else (
             echo  [OK] Frontend built
