@@ -14,7 +14,8 @@ from core.task import Task, TaskStore, TaskStatus
 from core.events import EventLog
 from agents.supervisor import Supervisor
 from agents.specialist import SpecialistAgent
-from agents.roles import ROLES
+from agents.loader import AgentLoader
+from agents.roles import AGENT_NAMES
 
 MODEL_ALIASES = {"haiku": HAIKU, "sonnet": SONNET, "opus": OPUS}
 BANNER = """\
@@ -27,13 +28,13 @@ HELP_TEXT = """\
 Commands:
   <task description>       Create and run a task (e.g. "build a CSV parser")
   /status [TASK-ID]        Show all tasks, or details for one task
-  /agents                  List available specialist agents
+  /agents [name]           List agents, or inspect one agent's loaded config
   /log [n]                 Show recent events (default 20)
   /report TASK-ID          Print a task report
   /memory [key]            Read a memory entry (omit key to list all)
   /tasks [status]          Filter tasks by status (pending/complete/failed)
+  /agents [name]           List agents, or show one agent's loaded identity
   /approve                 Review and act on pending shell command approvals
-  /cost                    Show session token cost summary
   /help                    Show this help
   /quit or Ctrl-C          Exit"""
 
@@ -109,10 +110,26 @@ class WorkspaceConsole:
             if len(tasks) > 30:
                 print(f"  ... and {len(tasks) - 30} more")
 
-    def _cmd_agents(self) -> None:
-        print()
-        for name, cfg in ROLES.items():
-            print(f"  {name:<12}  {cfg['description']}")
+    def _cmd_agents(self, args: str = "") -> None:
+        loader = AgentLoader(self.workspace.agents)  # type: ignore[attr-defined]
+        name = args.strip().lower()
+        if name and name in AGENT_NAMES:
+            cfg = loader.load(name)
+            print(f"\n  {cfg.name} — {cfg.role}")
+            print(f"  model: {cfg.model}  |  tools: {cfg.tools}")
+            src = cfg.source_file or "(built-in fallback)"
+            print(f"  source: {src}")
+            print(f"\n  System prompt preview:\n")
+            for line in cfg.system_prompt.splitlines()[:12]:
+                print(f"    {line}")
+            if len(cfg.system_prompt.splitlines()) > 12:
+                print("    ...")
+        else:
+            print()
+            for agent_name in AGENT_NAMES:
+                cfg = loader.load(agent_name)
+                src = "✓" if cfg.source_file else "⚠ fallback"
+                print(f"  {agent_name:<12}  {cfg.role:<22}  {src}")
 
     def _cmd_log(self, args: str) -> None:
         try:
@@ -194,7 +211,7 @@ class WorkspaceConsole:
             elif cmd == "status":
                 self._cmd_status(args)
             elif cmd == "agents":
-                self._cmd_agents()
+                self._cmd_agents(args)
             elif cmd == "log":
                 self._cmd_log(args)
             elif cmd == "report":

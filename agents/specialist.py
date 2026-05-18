@@ -6,7 +6,7 @@ from core.workspace import Workspace
 from core.task import Task, TaskStatus, TaskStore
 from core.events import EventLog
 from .base import BaseAgent
-from .roles import ROLES
+from .loader import AgentLoader
 
 
 def _summarize_input(inp: dict) -> str:
@@ -20,10 +20,12 @@ def _summarize_input(inp: dict) -> str:
 
 
 def _to_openai_tools(anthropic_tools: list) -> list:
-    """Convert @beta_tool objects to OpenAI function-calling format."""
     result = []
     for t in anthropic_tools:
-        schema = t.model_dump() if hasattr(t, "model_dump") else dict(t)
+        try:
+            schema = t.model_dump() if hasattr(t, "model_dump") else dict(t)
+        except Exception:
+            schema = {"name": t.__name__, "description": t.__doc__ or "", "input_schema": {}}
         result.append({
             "type": "function",
             "function": {
@@ -49,18 +51,17 @@ class SpecialistAgent(BaseAgent):
         self.role = role
         self.name = role
         self._approval_callback = approval_callback
-        role_cfg = ROLES.get(role, {})
-        self._system_prompt = role_cfg.get("system_prompt", f"You are the {role} agent.")
-        self._tool_spec = role_cfg.get("tools", "all")
+        # Load personality and instructions from workspace/agents/<role>.md
+        self._cfg = AgentLoader(workspace.agents).load(role)  # type: ignore[attr-defined]
 
     @property
     def system_prompt(self) -> str:
-        return self._system_prompt
+        return self._cfg.system_prompt
 
     @property
     def tools(self) -> list:
         from tools import get_tools
-        return get_tools(self._tool_spec, self.workspace, self._approval_callback)
+        return get_tools(self._cfg.tools, self.workspace, self._approval_callback)
 
     def execute(self, task: Task, model: Optional[str] = None) -> str:
         task.status = TaskStatus.IN_PROGRESS
@@ -70,21 +71,21 @@ class SpecialistAgent(BaseAgent):
 
         if self.config.is_ollama:
             return self._execute_ollama(task)
-        return self._execute_anthropic(task, model or SONNET)
+        return self._execute_anthropic(task, model or self._model())
 
     # ── Anthropic path ────────────────────────────────────────────────────────
 
     def _execute_anthropic(self, task: Task, model: str) -> str:
         print(f"\n[{task.id}] {self.role} starting — {model.split('-')[1]} (anthropic)")
-
-        messages = [{"role": "user", "content": self._task_prompt(task)}]
+        if self._cfg.source_file:
+            print(f"  identity → {self._cfg.source_file}")
 
         runner = self.client.beta.messages.tool_runner(
             model=model,
             max_tokens=self.config.max_tokens,
             system=[{"type": "text", "text": self.system_prompt, "cache_control": {"type": "ephemeral"}}],
             tools=self.tools,
-            messages=messages,
+            messages=[{"role": "user", "content": self._task_prompt(task)}],
         )
 
         final_text = ""
@@ -116,10 +117,12 @@ class SpecialistAgent(BaseAgent):
         try:
             from openai import OpenAI
         except ImportError:
-            raise ImportError("Install the openai package: pip install openai")
+            raise ImportError("Run: pip install openai")
 
         model = self.config.ollama_model
         print(f"\n[{task.id}] {self.role} starting — {model} (ollama)")
+        if self._cfg.source_file:
+            print(f"  identity → {self._cfg.source_file}")
 
         client = OpenAI(base_url=f"{self.config.ollama_base_url}/v1", api_key="ollama")
         tool_list = self.tools
@@ -141,8 +144,6 @@ class SpecialistAgent(BaseAgent):
 
             response = client.chat.completions.create(**kwargs)
             msg = response.choices[0].message
-
-            # Append assistant turn (convert to dict for mutability)
             messages.append({"role": "assistant", "content": msg.content, "tool_calls": msg.tool_calls})
 
             if not msg.tool_calls:
@@ -158,35 +159,27 @@ class SpecialistAgent(BaseAgent):
                     args = json.loads(tc.function.arguments or "{}")
                 except json.JSONDecodeError:
                     args = {}
-
                 print(f"  ↳ {fn_name}({_summarize_input(args)})", flush=True)
-
                 fn = tool_fn_map.get(fn_name)
-                if fn:
-                    try:
-                        result = fn(**args)
-                    except Exception as e:
-                        result = f"Tool error: {e}"
-                else:
-                    result = f"Unknown tool: {fn_name}"
-
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": str(result),
-                })
+                result = fn(**args) if fn else f"Unknown tool: {fn_name}"
+                messages.append({"role": "tool", "tool_call_id": tc.id, "content": str(result)})
 
         self._finish(task, final_text, tool_calls_total, model, 0.0)
         return final_text
 
-    # ── Shared ────────────────────────────────────────────────────────────────
+    # ── Shared helpers ────────────────────────────────────────────────────────
+
+    def _model(self) -> str:
+        from config import HAIKU, SONNET, OPUS
+        mapping = {"haiku": HAIKU, "sonnet": SONNET, "opus": OPUS}
+        return mapping.get(self._cfg.model, SONNET)
 
     def _task_prompt(self, task: Task) -> str:
         return (
             f"**Task ID:** {task.id}\n"
             f"**Title:** {task.title}\n\n"
             f"{task.description}\n\n"
-            f"When complete, call `write_report` to save your findings."
+            "When complete, call `write_report` to save your findings."
         )
 
     def _finish(self, task: Task, final_text: str, tool_calls: int, model: str, cost: float) -> None:
@@ -199,7 +192,7 @@ class SpecialistAgent(BaseAgent):
             task_id=task.id,
             agent=self.role,
         )
-        cost_str = f"~${cost:.4f}" if cost else "local (no cost)"
+        cost_str = f"~${cost:.4f}" if cost else "local (free)"
         print(f"\n  ✓ {task.id} complete  |  {tool_calls} tool calls  |  {cost_str}")
         report_path = self.workspace.reports / f"{task.id}.md"  # type: ignore[attr-defined]
         if report_path.exists():
