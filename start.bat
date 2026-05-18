@@ -21,17 +21,15 @@ for /f "tokens=2" %%v in ('python --version 2^>^&1') do set PYVER=%%v
 echo  [OK] Python !PYVER!
 
 :: ------------------------------------------------------------------
-:: Check Node
+:: Check Node (required for Vite dev server)
 :: ------------------------------------------------------------------
-set SKIP_BUILD=
 node --version >nul 2>&1
 if !ERRORLEVEL! neq 0 (
-    echo  [WARN] Node.js not found - frontend will use pre-built files only
-    set SKIP_BUILD=1
-) else (
-    for /f %%v in ('node --version 2^>^&1') do set NODEVER=%%v
-    echo  [OK] Node !NODEVER!
+    echo  [ERROR] Node.js not found. Install from https://nodejs.org
+    goto :error
 )
+for /f %%v in ('node --version 2^>^&1') do set NODEVER=%%v
+echo  [OK] Node !NODEVER!
 
 :: ------------------------------------------------------------------
 :: Check Ollama
@@ -57,38 +55,23 @@ if !ERRORLEVEL! neq 0 (
 echo  [OK] Python dependencies installed
 
 :: ------------------------------------------------------------------
-:: Build frontend
-:: Flat goto structure avoids %var% parse-time expansion bug inside
-:: nested parenthesized blocks.
+:: Install frontend dependencies if node_modules is absent
 :: ------------------------------------------------------------------
-if defined SKIP_BUILD goto :skip_build
-if exist "dashboard\dist\index.html" (
-    echo  [OK] Frontend already built
-    goto :skip_build
-)
-
-echo.
-echo  Building frontend...
-pushd dashboard
-
-call npm install --silent
-if !ERRORLEVEL! neq 0 (
-    echo  [WARN] npm install failed - running in API-only mode
+if not exist "dashboard\node_modules" (
+    echo.
+    echo  Installing frontend dependencies...
+    pushd "%~dp0dashboard"
+    call npm install --silent
+    set NPM_RESULT=!ERRORLEVEL!
     popd
-    goto :skip_build
-)
-
-call npm run build
-set BUILD_RESULT=!ERRORLEVEL!
-popd
-
-if !BUILD_RESULT! neq 0 (
-    echo  [WARN] Frontend build failed - running in API-only mode
+    if !NPM_RESULT! neq 0 (
+        echo  [ERROR] npm install failed
+        goto :error
+    )
+    echo  [OK] Frontend dependencies installed
 ) else (
-    echo  [OK] Frontend built
+    echo  [OK] Frontend dependencies present
 )
-
-:skip_build
 
 :: ------------------------------------------------------------------
 :: Load .env if present
@@ -104,23 +87,69 @@ if exist ".env" (
 )
 
 :: ------------------------------------------------------------------
-:: Start server
+:: Start backend (new window, stays open)
 :: ------------------------------------------------------------------
-set HOST=127.0.0.1
-set PORT=8000
-if defined WORKSPACE_PORT set PORT=!WORKSPACE_PORT!
+set BACKEND_PORT=8000
+if defined WORKSPACE_PORT set BACKEND_PORT=!WORKSPACE_PORT!
 
 echo.
-echo  Starting Mission Control on http://!HOST!:!PORT!
-echo  Press Ctrl+C to stop.
+echo  Starting backend on port !BACKEND_PORT!...
+start "AI Workspace - Backend" python main.py --web --host 127.0.0.1 --port !BACKEND_PORT!
+if !ERRORLEVEL! neq 0 (
+    echo  [ERROR] Failed to launch backend window
+    goto :error
+)
+echo  [OK] Backend window opened
+
+:: ------------------------------------------------------------------
+:: Start frontend Vite dev server (new window, stays open via cmd /k)
+:: pushd/popd sets CWD for the child process without nested quote issues
+:: ------------------------------------------------------------------
+echo  Starting frontend dev server...
+pushd "%~dp0dashboard"
+start "AI Workspace - Frontend" cmd /k "npm run dev"
+set FRONT_LAUNCH=!ERRORLEVEL!
+popd
+if !FRONT_LAUNCH! neq 0 (
+    echo  [ERROR] Failed to launch frontend window
+    goto :error
+)
+echo  [OK] Frontend window opened
+
+:: ------------------------------------------------------------------
+:: Detect Vite's actual port (5173 or 5174) via PowerShell TCP probe.
+:: Vite auto-increments when 5173 is busy. PowerShell polls up to 15s.
+:: Result is written to a temp file to avoid exit-code smuggling tricks.
+:: ------------------------------------------------------------------
+echo  Detecting frontend port...
+set "VITE_PORT_FILE=%TEMP%\ai_ws_vite_port.tmp"
+if exist "!VITE_PORT_FILE!" del "!VITE_PORT_FILE!" >nul 2>&1
+
+powershell -nologo -noprofile -command ^
+  "for ($i=0;$i-lt15;$i++){foreach($p in 5173,5174){try{$t=New-Object Net.Sockets.TcpClient;$ar=$t.BeginConnect('127.0.0.1',$p,$null,$null);if($ar.AsyncWaitHandle.WaitOne(400)){$t.EndConnect($ar);$t.Close();[IO.File]::WriteAllText($env:VITE_PORT_FILE,$p.ToString());exit}; try{$t.Close()}catch{}}catch{}};Start-Sleep 1}" ^
+  2>nul
+
+set FRONTEND_PORT=5173
+if exist "!VITE_PORT_FILE!" (
+    set /p FRONTEND_PORT=<"!VITE_PORT_FILE!"
+    del "!VITE_PORT_FILE!" >nul 2>&1
+) else (
+    echo  [WARN] Vite port detection timed out - defaulting to 5173
+)
+
+:: ------------------------------------------------------------------
+:: Open browser at the detected frontend URL
+:: ------------------------------------------------------------------
+set FRONTEND_URL=http://127.0.0.1:!FRONTEND_PORT!
+echo.
+echo  [OK] Backend  : http://127.0.0.1:!BACKEND_PORT!  (API + WS)
+echo  [OK] Frontend : !FRONTEND_URL!   (Vite dev server)
+echo.
+echo  Both services are running in separate windows.
+echo  Close those windows to stop the services.
 echo.
 
-:: Open browser after ~2s delay.
-:: ping -n 3 pauses ~2s and works in both cmd.exe and Git Bash.
-:: Inner cmd /c is needed so "start http://..." uses cmd's START.
-start "" /b cmd /c "ping -n 3 127.0.0.1 >nul 2>&1 & start http://!HOST!:!PORT!"
-
-python main.py --web --host !HOST! --port !PORT!
+start "" "!FRONTEND_URL!"
 goto :eof
 
 :: ------------------------------------------------------------------

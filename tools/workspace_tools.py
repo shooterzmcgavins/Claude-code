@@ -2,7 +2,6 @@
 from typing import Optional
 from pathlib import Path
 from datetime import datetime
-from anthropic import beta_tool
 
 _workspace_root: Optional[Path] = None
 
@@ -18,7 +17,6 @@ def _ws() -> Path:
     return _workspace_root
 
 
-@beta_tool
 def write_report(task_id: str, content: str) -> str:
     """Write a task report to the workspace reports directory.
 
@@ -34,7 +32,6 @@ def write_report(task_id: str, content: str) -> str:
     return f"Report saved to workspace/reports/{task_id}.md"
 
 
-@beta_tool
 def read_memory(key: str) -> str:
     """Read a memory entry from the workspace memory store.
 
@@ -54,7 +51,6 @@ def read_memory(key: str) -> str:
     return path.read_text()
 
 
-@beta_tool
 def write_memory(key: str, content: str) -> str:
     """Persist information to the workspace memory store for future reference.
 

@@ -1,9 +1,7 @@
 import glob
 import os
-from anthropic import beta_tool
 
 
-@beta_tool
 def read_file(path: str) -> str:
     """Read the contents of a file.
 
@@ -22,7 +20,6 @@ def read_file(path: str) -> str:
         return f"Failed to read {path}: {e}"
 
 
-@beta_tool
 def write_file(path: str, content: str) -> str:
     """Write content to a file, creating parent directories as needed.
 
@@ -39,7 +36,6 @@ def write_file(path: str, content: str) -> str:
         return f"Failed to write {path}: {e}"
 
 
-@beta_tool
 def list_files(directory: str = ".", pattern: str = "*") -> str:
     """List files in a directory matching an optional glob pattern.
 

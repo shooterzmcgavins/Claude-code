@@ -19,24 +19,6 @@ def _summarize_input(inp: dict) -> str:
     return ", ".join(parts)
 
 
-def _to_openai_tools(anthropic_tools: list) -> list:
-    result = []
-    for t in anthropic_tools:
-        try:
-            schema = t.model_dump() if hasattr(t, "model_dump") else dict(t)
-        except Exception:
-            schema = {"name": t.__name__, "description": t.__doc__ or "", "input_schema": {}}
-        result.append({
-            "type": "function",
-            "function": {
-                "name": schema["name"],
-                "description": schema.get("description", ""),
-                "parameters": schema.get("input_schema", {"type": "object", "properties": {}}),
-            },
-        })
-    return result
-
-
 class SpecialistAgent(BaseAgent):
     def __init__(
         self,
@@ -80,21 +62,31 @@ class SpecialistAgent(BaseAgent):
         if self._cfg.source_file:
             print(f"  identity → {self._cfg.source_file}")
 
-        runner = self.client.beta.messages.tool_runner(
-            model=model,
-            max_tokens=self.config.max_tokens,
-            system=[{"type": "text", "text": self.system_prompt, "cache_control": {"type": "ephemeral"}}],
-            tools=self.tools,
-            messages=[{"role": "user", "content": self._task_prompt(task)}],
-        )
+        tool_list = self.tools
+        tools = [{"name": t.name, "description": t.description, "input_schema": t.input_schema} for t in tool_list]
+        tool_fn_map = {t.name: t for t in tool_list}
+
+        messages = [{"role": "user", "content": self._task_prompt(task)}]
 
         final_text = ""
         tool_calls = 0
         input_tokens = 0
         output_tokens = 0
 
-        for message in runner:
-            for block in message.content:
+        while True:
+            response = self.client.messages.create(
+                model=model,
+                max_tokens=self.config.max_tokens,
+                system=[{"type": "text", "text": self.system_prompt, "cache_control": {"type": "ephemeral"}}],
+                tools=tools,
+                messages=messages,
+            )
+
+            input_tokens += getattr(response.usage, "input_tokens", 0) or 0
+            output_tokens += getattr(response.usage, "output_tokens", 0) or 0
+
+            pending_tool_calls = []
+            for block in response.content:
                 if not hasattr(block, "type"):
                     continue
                 if block.type == "text" and block.text:
@@ -106,9 +98,18 @@ class SpecialistAgent(BaseAgent):
                     summary = _summarize_input(block.input)
                     print(f"  ↳ {block.name}({summary})", flush=True)
                     self.events.log("agent.tool_call", {"tool": block.name, "args": summary}, task_id=task.id, agent=self.role)
-            if hasattr(message, "usage") and message.usage:
-                input_tokens += getattr(message.usage, "input_tokens", 0) or 0
-                output_tokens += getattr(message.usage, "output_tokens", 0) or 0
+                    pending_tool_calls.append(block)
+
+            if response.stop_reason == "tool_use":
+                messages.append({"role": "assistant", "content": response.content})
+                tool_results = []
+                for block in pending_tool_calls:
+                    fn = tool_fn_map.get(block.name)
+                    result = fn(**block.input) if fn else f"Unknown tool: {block.name}"
+                    tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": str(result)})
+                messages.append({"role": "user", "content": tool_results})
+            else:
+                break
 
         cost = _estimate_cost(model, input_tokens, output_tokens)
         self._finish(task, final_text, tool_calls, model, cost)
@@ -129,12 +130,11 @@ class SpecialistAgent(BaseAgent):
 
         client = OpenAI(base_url=f"{self.config.ollama_base_url}/v1", api_key="ollama")
         tool_list = self.tools
-        oai_tools = _to_openai_tools(tool_list)
-        # Key the map by the schema name so it matches what Ollama returns in tool calls.
-        tool_fn_map = {
-            s["function"]["name"]: fn
-            for s, fn in zip(oai_tools, tool_list)
-        }
+        oai_tools = [
+            {"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.input_schema}}
+            for t in tool_list
+        ]
+        tool_fn_map = {t.name: t for t in tool_list}
 
         messages = [
             {"role": "system", "content": self.system_prompt},

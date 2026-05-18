@@ -2,7 +2,6 @@ import urllib.request
 import urllib.parse
 import json
 from html.parser import HTMLParser
-from anthropic import beta_tool
 
 
 class _TextExtractor(HTMLParser):
@@ -27,7 +26,6 @@ class _TextExtractor(HTMLParser):
                 self.parts.append(s)
 
 
-@beta_tool
 def web_search(query: str, max_results: int = 5) -> str:
     """Search the web using DuckDuckGo and return results.
 
@@ -55,7 +53,6 @@ def web_search(query: str, max_results: int = 5) -> str:
     return "\n".join(results) if results else f"No results for: {query}"
 
 
-@beta_tool
 def fetch_url(url: str, extract_text: bool = True) -> str:
     """Fetch the content of a URL.
 

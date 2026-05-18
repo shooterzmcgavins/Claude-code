@@ -1,6 +1,5 @@
 import subprocess
 from typing import Optional, Callable
-from anthropic import beta_tool
 
 _BLOCKED = {"rm -rf /", ":(){ :|:& };:", "mkfs", "dd if=/dev/zero", "> /dev/sda"}
 _approval_callback: Optional[Callable[[str, str, str], bool]] = None
@@ -15,7 +14,6 @@ def set_approval_callback(fn: Optional[Callable[[str, str, str], bool]]) -> None
     _approval_callback = fn
 
 
-@beta_tool
 def run_shell(command: str, working_dir: str = ".") -> str:
     """Execute a shell command and return its output.
 
