@@ -77,10 +77,14 @@ async def send_message(body: ChatRequest):
 
 def _direct_reply(message: str, agent_name: str, history: list) -> str:
     """Blocking direct LLM call used by chat mode (runs in executor thread)."""
-    from agents.loader import AgentLoader
-
-    agent_cfg = AgentLoader(state.workspace.agents).load(agent_name)
-    system = agent_cfg.system_prompt
+    provider = state.config.provider
+    model = state.config.ollama_model if state.config.is_ollama else "claude-sonnet-4-6"
+    system = (
+        f"You are a helpful AI assistant ({agent_name} persona). "
+        f"Provider: {provider}. Model: {model}. "
+        "Reply conversationally and directly. "
+        "Do not create tasks, files, or reports unless explicitly asked."
+    )
 
     # Build message list: recent history + current message
     msgs: list[dict] = []

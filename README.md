@@ -339,23 +339,47 @@ python main.py
 
 ---
 
-## EXE Packaging
+## EXE Launcher (Windows)
 
-Package as a standalone Windows executable:
+`AI-Workspace.exe` is a lightweight launcher — it opens the backend and frontend
+in their own console windows, waits for the backend health check, then opens the
+browser. It does **not** bundle Python or Node; those must be installed separately.
 
-```bash
-pip install pyinstaller
+### Prerequisites
 
-# Build frontend first
-cd dashboard && npm install && npm run build && cd ..
+| Tool | Where |
+|------|-------|
+| Python 3.11+ | [python.org](https://python.org) — add to PATH |
+| Node.js 18+ | [nodejs.org](https://nodejs.org) |
+| Ollama | [ollama.ai](https://ollama.ai) (or set `PROVIDER=anthropic`) |
 
-# Package
-pyinstaller pyinstaller.spec
+### Build the EXE
+
+```bat
+build-exe.bat
 ```
 
-Output: `dist/AI-Workspace/AI-Workspace.exe`
+This installs PyInstaller if needed and produces `dist\AI-Workspace.exe`.
 
-The EXE bundles the Python runtime and pre-built frontend. Distribute the full `dist/AI-Workspace/` folder. The workspace directory is created next to the EXE on first run.
+### Run
+
+Double-click `dist\AI-Workspace.exe` (must stay inside the `dist\` folder so it
+can locate the project root one level up).
+
+Or run from CMD:
+
+```bat
+dist\AI-Workspace.exe
+```
+
+### What it does
+
+1. Starts the backend (`py main.py --web`) in a new console window
+2. Polls `http://127.0.0.1:8000/api/health` for up to 30 seconds
+3. Starts the frontend (`npm run dev` in `dashboard/`) in a new console window
+4. Waits 4 seconds for Vite, then opens `http://localhost:5173`
+
+Close the backend and frontend console windows to stop both services.
 
 ---
 
