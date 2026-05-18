@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
@@ -7,76 +8,52 @@ from web import state, chat_history
 from agents.roles import AGENT_NAMES
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+log = logging.getLogger(__name__)
 
 _CONTEXT_WINDOW = 10  # recent messages passed as history in chat mode
 
 
-class ChatRequest(BaseModel):
+# ── Direct chat ───────────────────────────────────────────────────────────────
+
+class DirectChatRequest(BaseModel):
     message: str
     agent: Optional[str] = None
     session_id: Optional[str] = None
-    mode: str = "chat"          # "chat" | "task"
 
 
-@router.post("")
-async def send_message(body: ChatRequest):
+@router.post("/direct")
+async def direct_chat(body: DirectChatRequest):
+    """Direct conversational chat — no task created, no task engine involved."""
     session_id = body.session_id or chat_history.new_session_id()
     chats_dir = state.workspace.root / "chats"
 
-    # Resolve agent (chat mode defaults to builder, task mode routes via supervisor)
-    agent_name = body.agent if body.agent and body.agent in AGENT_NAMES else None
-    if body.mode == "task":
-        agent_name = agent_name or state.supervisor.route(body.message)
-    else:
-        agent_name = agent_name or "builder"
+    agent_name = body.agent if body.agent and body.agent in AGENT_NAMES else "builder"
 
-    # ── Chat mode: direct synchronous reply, no task created ──────────────────
-    if body.mode == "chat":
-        history = chat_history.load(chats_dir, session_id)
-        reply = await asyncio.get_running_loop().run_in_executor(
-            state.executor,
-            _direct_reply,
-            body.message,
-            agent_name,
-            history,
-        )
-        chat_history.append(chats_dir, session_id, "user", body.message, agent=agent_name)
-        chat_history.append(chats_dir, session_id, "assistant", reply, agent=agent_name)
-        return {
-            "mode": "chat",
-            "reply": reply,
-            "session_id": session_id,
-            "agent": agent_name,
-            "task_id": None,
-        }
+    provider = state.config.provider
+    model = state.config.ollama_model if state.config.is_ollama else "claude-sonnet-4-6"
+    log.info("DIRECT_CHAT provider=%s model=%s persona=%s", provider, model, agent_name)
 
-    # ── Task mode: existing task-engine path ──────────────────────────────────
-    task = Task.create(body.message)
-    state.task_store.save(task)
-    state.event_log.log("task.created", {"title": task.title}, task_id=task.id)
-    chat_history.append(chats_dir, session_id, "user", body.message, task_id=task.id)
+    history = chat_history.load(chats_dir, session_id)
+    reply = await asyncio.get_running_loop().run_in_executor(
+        state.executor,
+        _direct_reply,
+        body.message,
+        agent_name,
+        history,
+    )
 
-    def _on_complete(tid: str, sid: str, ag: str) -> None:
-        t = state.task_store.load(tid)
-        if t and t.result:
-            chat_history.append(chats_dir, sid, "assistant", t.result, agent=ag, task_id=tid)
+    chat_history.append(chats_dir, session_id, "user", body.message, agent=agent_name)
+    chat_history.append(chats_dir, session_id, "assistant", reply, agent=agent_name)
 
-    def _run() -> None:
-        state.run_agent(task.id, agent_name)
-        _on_complete(task.id, session_id, agent_name)
-
-    asyncio.get_running_loop().run_in_executor(state.executor, _run)
     return {
-        "mode": "task",
-        "task_id": task.id,
+        "reply": reply,
         "session_id": session_id,
         "agent": agent_name,
-        "reply": None,
     }
 
 
 def _direct_reply(message: str, agent_name: str, history: list) -> str:
-    """Blocking direct LLM call used by chat mode (runs in executor thread)."""
+    """Blocking direct LLM call — runs in executor thread."""
     provider = state.config.provider
     model = state.config.ollama_model if state.config.is_ollama else "claude-sonnet-4-6"
     system = (
@@ -86,7 +63,6 @@ def _direct_reply(message: str, agent_name: str, history: list) -> str:
         "Do not create tasks, files, or reports unless explicitly asked."
     )
 
-    # Build message list: recent history + current message
     msgs: list[dict] = []
     for h in history[-_CONTEXT_WINDOW:]:
         if h.get("role") in ("user", "assistant"):
@@ -122,6 +98,47 @@ def _direct_reply(message: str, agent_name: str, history: list) -> str:
         except Exception as exc:
             return f"Anthropic error: {exc}"
 
+
+# ── Task-mode chat (legacy — kept for session linkage) ────────────────────────
+
+class TaskChatRequest(BaseModel):
+    message: str
+    agent: Optional[str] = None
+    session_id: Optional[str] = None
+
+
+@router.post("/task")
+async def task_chat(body: TaskChatRequest):
+    """Create a tracked task from the chat UI and link it to the session."""
+    session_id = body.session_id or chat_history.new_session_id()
+    chats_dir = state.workspace.root / "chats"
+
+    agent_name = body.agent if body.agent and body.agent in AGENT_NAMES else None
+    agent_name = agent_name or state.supervisor.route(body.message)
+
+    task = Task.create(body.message)
+    state.task_store.save(task)
+    state.event_log.log("task.created", {"title": task.title}, task_id=task.id)
+    chat_history.append(chats_dir, session_id, "user", body.message, task_id=task.id)
+
+    def _on_complete(tid: str, sid: str, ag: str) -> None:
+        t = state.task_store.load(tid)
+        if t and t.result:
+            chat_history.append(chats_dir, sid, "assistant", t.result, agent=ag, task_id=tid)
+
+    def _run() -> None:
+        state.run_agent(task.id, agent_name)
+        _on_complete(task.id, session_id, agent_name)
+
+    asyncio.get_running_loop().run_in_executor(state.executor, _run)
+    return {
+        "task_id": task.id,
+        "session_id": session_id,
+        "agent": agent_name,
+    }
+
+
+# ── Session endpoints ─────────────────────────────────────────────────────────
 
 @router.get("/sessions")
 async def list_sessions():

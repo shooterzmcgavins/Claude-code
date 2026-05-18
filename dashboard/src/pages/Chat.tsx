@@ -89,32 +89,51 @@ export default function Chat() {
     setSending(false)
   }
 
+  // ── CHAT MODE: direct Ollama call, zero task creation ───────────────────────
+  const sendDirect = async (text: string) => {
+    push({ role: 'user', content: text, ts: now() })
+    try {
+      const res = await api.chat.direct(text, agent, sessionId ?? undefined)
+      setSessionId(res.session_id)
+      push({ role: 'assistant', content: res.reply ?? '(no response)', agent: res.agent, ts: now() })
+    } catch (err: any) {
+      push({ role: 'system', content: `Error: ${err.message}`, ts: now() })
+    } finally {
+      setSending(false)
+    }
+    api.chat.sessions().then(setSessions).catch(() => {})
+  }
+
+  // ── TASK MODE: task engine, WS events, task tracking ───────────────────────
+  const sendTask = async (text: string) => {
+    push({ role: 'user', content: text, ts: now() })
+    try {
+      const res = await api.chat.task(text, agent, sessionId ?? undefined)
+      setSessionId(res.session_id)
+      setActiveTaskId(res.task_id)
+      push({ role: 'system', content: `Task ${res.task_id} → ${res.agent}`, ts: now() })
+    } catch (err: any) {
+      push({ role: 'system', content: `Error: ${err.message}`, ts: now() })
+      setSending(false)
+    }
+    api.chat.sessions().then(setSessions).catch(() => {})
+  }
+
   const send = async () => {
     const text = input.trim()
     if (!text || sending) return
     setInput('')
     setSending(true)
-    push({ role: 'user', content: text, ts: now() })
-
-    try {
-      const res = await api.chat.send(text, agent, sessionId ?? undefined, mode)
-      setSessionId(res.session_id)
-
-      if (mode === 'chat') {
-        // Direct reply — already have the response
-        push({ role: 'assistant', content: res.reply ?? '(no response)', agent: res.agent, ts: now() })
-        setSending(false)
-      } else {
-        // Task mode — wait for WS events
-        setActiveTaskId(res.task_id)
-        push({ role: 'system', content: `Task ${res.task_id} routed to ${res.agent}`, ts: now() })
-      }
-
-      api.chat.sessions().then(setSessions).catch(() => {})
-    } catch (err: any) {
-      push({ role: 'system', content: `Error: ${err.message}`, ts: now() })
-      setSending(false)
+    if (mode === 'chat') {
+      await sendDirect(text)
+    } else {
+      await sendTask(text)
     }
+  }
+
+  const switchMode = (m: Mode) => {
+    setMode(m)
+    if (m === 'chat') setActiveTaskId(null)
   }
 
   const onKey = (e: React.KeyboardEvent) => {
@@ -145,19 +164,28 @@ export default function Chat() {
 
       {/* Main chat area */}
       <div className="flex flex-col flex-1 overflow-hidden">
-        {/* Toolbar: mode toggle + agent selector */}
-        <div className="flex items-center gap-3 px-4 py-2 border-b border-slate-800 bg-slate-900/50 shrink-0">
-          {/* Mode toggle */}
-          <div className="flex items-center bg-slate-800 rounded p-0.5 gap-0.5">
+
+        {/* ── Mode toggle bar ── */}
+        <div className="flex items-center gap-4 px-4 py-3 border-b-2 border-slate-700 bg-slate-900 shrink-0">
+          <span className="text-xs text-slate-400 font-semibold uppercase tracking-widest">Mode:</span>
+          <div className="flex items-center bg-slate-800 rounded-md p-1 gap-1">
             <button
-              onClick={() => { setMode('chat'); setActiveTaskId(null) }}
-              className={`px-3 py-1 rounded text-xs transition-colors ${mode === 'chat' ? 'bg-cyan-800 text-cyan-100' : 'text-slate-400 hover:text-slate-300'}`}
+              onClick={() => switchMode('chat')}
+              className={`px-4 py-1.5 rounded text-xs font-medium transition-colors ${
+                mode === 'chat'
+                  ? 'bg-cyan-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
             >
               Chat
             </button>
             <button
-              onClick={() => setMode('task')}
-              className={`px-3 py-1 rounded text-xs transition-colors ${mode === 'task' ? 'bg-cyan-800 text-cyan-100' : 'text-slate-400 hover:text-slate-300'}`}
+              onClick={() => switchMode('task')}
+              className={`px-4 py-1.5 rounded text-xs font-medium transition-colors ${
+                mode === 'task'
+                  ? 'bg-purple-700 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
             >
               Task
             </button>
@@ -173,21 +201,41 @@ export default function Chat() {
             {AGENTS.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
 
-          {mode === 'chat' && (
-            <span className="text-xs text-slate-600 ml-auto">direct reply · no task created</span>
-          )}
-          {mode === 'task' && activeTaskId && (
-            <span className="text-xs text-cyan-400 animate-pulse ml-auto">{activeTaskId} running…</span>
-          )}
+          {/* Status indicator */}
+          <div className="ml-auto text-xs">
+            {mode === 'chat' && (
+              <span className="text-cyan-500 bg-cyan-950 border border-cyan-800 px-2 py-0.5 rounded">
+                Direct reply · no task created
+              </span>
+            )}
+            {mode === 'task' && !activeTaskId && (
+              <span className="text-purple-400 bg-purple-950 border border-purple-800 px-2 py-0.5 rounded">
+                Task mode · creates tracked job
+              </span>
+            )}
+            {mode === 'task' && activeTaskId && (
+              <span className="text-amber-400 bg-amber-950 border border-amber-800 px-2 py-0.5 rounded animate-pulse">
+                {activeTaskId} running…
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {messages.length === 0 && (
-            <div className="text-slate-600 text-sm text-center mt-20">
-              {mode === 'chat'
-                ? 'Chat mode — ask anything, get a direct reply'
-                : 'Task mode — describe a task to create a tracked job'}
+            <div className="text-slate-600 text-sm text-center mt-20 space-y-2">
+              {mode === 'chat' ? (
+                <>
+                  <div className="text-cyan-700 font-medium">Chat mode</div>
+                  <div>Ask anything — direct reply from Ollama, no task created.</div>
+                </>
+              ) : (
+                <>
+                  <div className="text-purple-700 font-medium">Task mode</div>
+                  <div>Describe a task — routed to an agent, tracked in Tasks.</div>
+                </>
+              )}
             </div>
           )}
           {messages.map(m => (
@@ -198,10 +246,10 @@ export default function Chat() {
                 </div>
               )}
               <div className={`max-w-[80%] rounded px-3 py-2 text-xs leading-relaxed ${
-                m.role === 'user'      ? 'bg-cyan-950 border border-cyan-800 text-cyan-100 ml-auto' :
-                m.role === 'tool'      ? 'bg-slate-900 border border-slate-800 text-amber-300 font-mono' :
-                m.role === 'system'    ? 'bg-slate-900/50 text-slate-500 italic text-center w-full max-w-full' :
-                                         'bg-slate-800 border border-slate-700 text-slate-200'
+                m.role === 'user'   ? 'bg-cyan-950 border border-cyan-800 text-cyan-100 ml-auto' :
+                m.role === 'tool'   ? 'bg-slate-900 border border-slate-800 text-amber-300 font-mono' :
+                m.role === 'system' ? 'bg-slate-900/50 text-slate-500 italic text-center w-full max-w-full' :
+                                      'bg-slate-800 border border-slate-700 text-slate-200'
               }`}>
                 {m.role === 'assistant' && m.agent && (
                   <div className="text-purple-400 text-xs mb-1">{m.agent}</div>
@@ -214,8 +262,8 @@ export default function Chat() {
           <div ref={endRef} />
         </div>
 
-        {/* Input */}
-        <div className="p-3 border-t border-slate-800 bg-slate-900/50 shrink-0">
+        {/* Input — tinted by mode */}
+        <div className={`p-3 border-t shrink-0 ${mode === 'chat' ? 'border-cyan-900 bg-cyan-950/20' : 'border-purple-900 bg-purple-950/20'}`}>
           <div className="flex gap-2">
             <textarea
               value={input}
@@ -228,7 +276,11 @@ export default function Chat() {
             <button
               onClick={send}
               disabled={sending || !input.trim()}
-              className="px-4 bg-cyan-800 hover:bg-cyan-700 disabled:bg-slate-800 disabled:text-slate-600 text-cyan-100 rounded text-xs transition-colors shrink-0"
+              className={`px-4 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded text-xs font-medium transition-colors shrink-0 ${
+                mode === 'chat'
+                  ? 'bg-cyan-700 hover:bg-cyan-600'
+                  : 'bg-purple-700 hover:bg-purple-600'
+              }`}
             >
               {sending ? '…' : mode === 'chat' ? 'Send' : 'Create Task'}
             </button>
