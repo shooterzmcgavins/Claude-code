@@ -15,6 +15,7 @@ class TaskStatus(str, Enum):
     NEEDS_APPROVAL = "needs_approval"
     COMPLETE = "complete"
     FAILED = "failed"
+    ARCHIVED = "archived"
 
 
 STATUS_SYMBOLS = {
@@ -23,6 +24,7 @@ STATUS_SYMBOLS = {
     TaskStatus.NEEDS_APPROVAL: "⚠",
     TaskStatus.COMPLETE: "✓",
     TaskStatus.FAILED: "✗",
+    "archived": "⊘",
 }
 
 

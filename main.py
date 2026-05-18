@@ -275,6 +275,10 @@ Examples:
     workspace = Workspace(Path(args.workspace))
     workspace.init()
 
+    # If no specific mode requested, default to web
+    if not args.task and not args.platform and not args.web:
+        args.web = True
+
     if args.web:
         _run_web(config, workspace, args.host, args.port)
         return

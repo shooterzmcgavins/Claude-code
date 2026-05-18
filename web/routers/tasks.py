@@ -61,3 +61,44 @@ async def get_task(task_id: str):
     if not task:
         raise HTTPException(404, f"Task {task_id} not found")
     return _task_dict(task)
+
+
+@router.post("/{task_id}/cancel")
+async def cancel_task(task_id: str):
+    task = state.task_store.load(task_id.upper())
+    if not task:
+        raise HTTPException(404, "Task not found")
+    task.status = TaskStatus.FAILED
+    task.result = "Cancelled by user"
+    state.task_store.save(task)
+    state.event_log.log("task.cancelled", {}, task_id=task_id)
+    return {"ok": True}
+
+
+@router.post("/{task_id}/archive")
+async def archive_task(task_id: str):
+    task = state.task_store.load(task_id.upper())
+    if not task:
+        raise HTTPException(404, "Task not found")
+    task.status = TaskStatus.ARCHIVED
+    state.task_store.save(task)
+    return {"ok": True}
+
+
+@router.post("/{task_id}/retry")
+async def retry_task(task_id: str):
+    from core.task import Task as TaskModel
+    original = state.task_store.load(task_id.upper())
+    if not original:
+        raise HTTPException(404, "Task not found")
+    new_task = TaskModel.create(original.title, original.description)
+    state.task_store.save(new_task)
+    agent_name = state.supervisor.route(new_task.description)
+    state.event_log.log(
+        "task.created",
+        {"title": new_task.title, "retry_of": task_id},
+        task_id=new_task.id,
+    )
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(state.executor, state.run_agent, new_task.id, agent_name)
+    return {"task_id": new_task.id}
