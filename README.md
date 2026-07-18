@@ -3,6 +3,7 @@
 A dead-simple, private app to log your Zyn (nicotine pouch) use. One tap per pouch — that's the whole idea. Watching the daily count is often enough to bring it down.
 
 - **One tap to log a pouch.** Big count of how many you've had today.
+- **Nicotine (and optional cost) tally** for today, right under the count. Defaults to 3 mg per pouch; set a price to also see money spent (leave it blank to hide cost).
 - **Today's list** with timestamps, and a remove button on each.
 - **Last 7 days** at a glance, so you can see the trend.
 - **100% private.** Data is stored locally in your browser (`localStorage`). No account, no server, nothing uploaded.

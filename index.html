@@ -70,6 +70,18 @@
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+  .tally { margin-top: 14px; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+  .tally b { color: var(--text); font-weight: 700; }
+  .tally .dot { opacity: .5; margin: 0 8px; }
+
+  details.settings { margin-bottom: 14px; }
+  details.settings summary { cursor: pointer; list-style: none; color: var(--muted); font-size: 13px; text-align: center; padding: 6px; }
+  details.settings summary::-webkit-details-marker { display: none; }
+  .setrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; }
+  .setrow label { font-size: 14px; color: var(--muted); }
+  .setrow input { width: 110px; padding: 10px 12px; border-radius: 10px; background: #0c1424; border: 1px solid var(--line); color: var(--text); font-size: 16px; font-family: inherit; text-align: right; }
+  .setrow input:focus { outline: none; border-color: var(--accent-dim); }
+
   .foot { text-align: center; color: var(--muted); font-size: 11px; margin-top: 10px; line-height: 1.7; }
   .foot button { background: none; color: var(--muted); font-size: 11px; text-decoration: underline; padding: 2px; }
 </style>
@@ -84,6 +96,7 @@
   <div class="card hero">
     <div class="count" id="todayCount">0</div>
     <div class="label" id="todayLabel">pouches today</div>
+    <div class="tally" id="tally"></div>
     <div class="btn-row">
       <button class="btn btn-primary" id="logBtn">+ Log a pouch</button>
       <button class="btn btn-ghost" id="undoBtn" disabled>Undo</button>
@@ -100,6 +113,21 @@
     <div id="history"></div>
   </div>
 
+  <details class="settings">
+    <summary>⚙︎ Adjust nicotine &amp; price</summary>
+    <div class="card" style="margin-top:10px">
+      <div class="setrow">
+        <label for="setMg">Nicotine per pouch (mg)</label>
+        <input type="number" id="setMg" min="0" step="0.5" inputmode="decimal" />
+      </div>
+      <div class="setrow">
+        <label for="setPrice">Price per pouch ($)</label>
+        <input type="number" id="setPrice" min="0" step="0.01" inputmode="decimal" placeholder="off" />
+      </div>
+      <div style="color:var(--muted);font-size:12px;margin-top:6px">Leave price blank or 0 to hide the cost line.</div>
+    </div>
+  </details>
+
   <div class="foot">
     Everything is stored privately on this device.<br />
     <button id="exportBtn">Export</button> · <button id="resetBtn">Reset</button>
@@ -115,8 +143,14 @@
   var state = load();
 
   function load() {
-    try { var s = JSON.parse(localStorage.getItem(STORE) || "{}"); return { logs: s.logs || {} }; }
-    catch (e) { return { logs: {} }; }
+    try {
+      var s = JSON.parse(localStorage.getItem(STORE) || "{}");
+      return {
+        logs: s.logs || {},
+        mgPerPouch: typeof s.mgPerPouch === "number" ? s.mgPerPouch : 3,
+        pricePerPouch: typeof s.pricePerPouch === "number" ? s.pricePerPouch : 0
+      };
+    } catch (e) { return { logs: {}, mgPerPouch: 3, pricePerPouch: 0 }; }
   }
   function save() { localStorage.setItem(STORE, JSON.stringify(state)); }
 
@@ -146,8 +180,24 @@
     $("todayCount").textContent = c;
     $("todayLabel").textContent = c === 1 ? "pouch today" : "pouches today";
     $("undoBtn").disabled = c === 0;
+    renderTally(c);
     renderTodayLog();
     renderHistory();
+  }
+
+  function renderTally(c) {
+    var parts = [];
+    var mg = c * (state.mgPerPouch || 0);
+    parts.push("<b>" + fmtMg(mg) + "</b> nicotine");
+    if (state.pricePerPouch > 0) {
+      parts.push("<b>$" + (c * state.pricePerPouch).toFixed(2) + "</b> today");
+    }
+    $("tally").innerHTML = parts.join('<span class="dot">·</span>');
+  }
+
+  function fmtMg(mg) {
+    if (mg >= 1000) return (mg / 1000).toFixed(mg % 1000 === 0 ? 0 : 1) + " g";
+    return (Math.round(mg * 10) / 10) + " mg";
   }
 
   function renderTodayLog() {
@@ -191,7 +241,19 @@
   }
   function resetAll() {
     if (!confirm("Erase all logged pouches? This cannot be undone.")) return;
-    state = { logs: {} }; save(); render(); toast("Reset.");
+    state = { logs: {}, mgPerPouch: state.mgPerPouch, pricePerPouch: state.pricePerPouch };
+    save(); render(); toast("Reset.");
+  }
+
+  function num(v, dflt) { v = parseFloat(v); return isNaN(v) || v < 0 ? dflt : v; }
+  function syncSettingsFields() {
+    $("setMg").value = state.mgPerPouch;
+    $("setPrice").value = state.pricePerPouch > 0 ? state.pricePerPouch : "";
+  }
+  function onSettingChange() {
+    state.mgPerPouch = num($("setMg").value, 0);
+    state.pricePerPouch = num($("setPrice").value, 0);
+    save(); render();
   }
 
   function $(id) { return document.getElementById(id); }
@@ -205,6 +267,9 @@
   $("undoBtn").onclick = undo;
   $("exportBtn").onclick = exportData;
   $("resetBtn").onclick = resetAll;
+  $("setMg").oninput = onSettingChange;
+  $("setPrice").oninput = onSettingChange;
+  syncSettingsFields();
   document.addEventListener("keydown", function (e) {
     if (e.target.tagName === "INPUT") return;
     if (e.key === "l" || e.key === "L") logPouch();
