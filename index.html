@@ -70,6 +70,10 @@
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+  .forecast-main { font-size: 20px; font-weight: 700; line-height: 1.35; }
+  .forecast-main .date { color: var(--accent); }
+  .forecast-sub { color: var(--muted); font-size: 13px; margin-top: 6px; }
+
   .tally { margin-top: 14px; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
   .tally b { color: var(--text); font-weight: 700; }
   .tally .dot { opacity: .5; margin: 0 8px; }
@@ -101,6 +105,12 @@
       <button class="btn btn-primary" id="logBtn">+ Log a pouch</button>
       <button class="btn btn-ghost" id="undoBtn" disabled>Undo</button>
     </div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Quit forecast</div>
+    <div class="forecast-main" id="forecastMain">—</div>
+    <div class="forecast-sub" id="forecastSub"></div>
   </div>
 
   <div class="card">
@@ -181,8 +191,78 @@
     $("todayLabel").textContent = c === 1 ? "pouch today" : "pouches today";
     $("undoBtn").disabled = c === 0;
     renderTally(c);
+    renderForecast();
     renderTodayLog();
     renderHistory();
+  }
+
+  // Project a quit date by fitting a line to recent completed days and
+  // finding where that downward trend reaches zero pouches/day.
+  function forecast() {
+    var keys = Object.keys(state.logs);
+    if (!keys.length) return { kind: "none" };
+    keys.sort();
+    var firstDate = new Date(keys[0] + "T00:00:00");
+    var yesterday = new Date(); yesterday.setHours(0, 0, 0, 0); yesterday.setDate(yesterday.getDate() - 1);
+    if (yesterday < firstDate) return { kind: "early" }; // only today has data so far
+
+    var winStart = new Date(yesterday); winStart.setDate(winStart.getDate() - 13);
+    if (firstDate > winStart) winStart = firstDate;
+
+    var series = [];
+    for (var d = new Date(winStart); d <= yesterday; d.setDate(d.getDate() + 1)) {
+      series.push(countOn(keyFor(d)));
+    }
+    var n = series.length;
+    if (n < 4) return { kind: "early", have: n };
+
+    var sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for (var i = 0; i < n; i++) { sx += i; sy += series[i]; sxx += i * i; sxy += i * series[i]; }
+    var denom = n * sxx - sx * sx;
+    if (denom === 0) return { kind: "early", have: n };
+    var slope = (n * sxy - sx * sy) / denom;
+    var intercept = (sy - slope * sx) / n;
+    var level = slope * (n - 1) + intercept; // fitted count at the most recent day
+    if (level < 0) level = 0;
+
+    if (level <= 0.5) return { kind: "almost" };
+    if (slope >= -0.03) return { kind: "flat" };         // essentially not declining
+    var daysToZero = level / (-slope);
+    if (daysToZero > 3650) return { kind: "slow" };      // >10 years ≈ flat
+
+    var eta = new Date(yesterday); eta.setDate(eta.getDate() + Math.ceil(daysToZero));
+    return { kind: "date", eta: eta, days: Math.ceil(daysToZero), perDay: -slope };
+  }
+
+  function fmtAway(days) {
+    if (days <= 1) return "tomorrow";
+    if (days <= 14) return "about " + days + " days away";
+    var weeks = Math.round(days / 7);
+    if (weeks < 9) return "about " + weeks + " weeks away";
+    var months = Math.round(days / 30);
+    return "about " + months + " months away";
+  }
+
+  function renderForecast() {
+    var f = forecast();
+    var main = $("forecastMain"), sub = $("forecastSub");
+    if (f.kind === "date") {
+      var opts = { weekday: "short", month: "short", day: "numeric" };
+      main.innerHTML = 'On pace to hit zero around <span class="date">' + f.eta.toLocaleDateString([], opts) + "</span>";
+      sub.textContent = fmtAway(f.days) + " · trending down ~" + (Math.round(f.perDay * 10) / 10) + " pouches/day. Stay under yesterday to keep the date moving closer.";
+    } else if (f.kind === "flat") {
+      main.textContent = "No downward trend yet";
+      sub.textContent = "Aim for one less than yesterday — a quit date appears as soon as your count starts falling.";
+    } else if (f.kind === "slow") {
+      main.textContent = "Trend is nearly flat";
+      sub.textContent = "A slightly steeper cut will bring your quit date into view.";
+    } else if (f.kind === "almost") {
+      main.textContent = "You're basically at zero 🎉";
+      sub.textContent = "Incredible. Hold it here and you're done.";
+    } else {
+      main.textContent = "Building your forecast…";
+      sub.textContent = "Log for a few days and your projected quit date shows up here.";
+    }
   }
 
   function renderTally(c) {
