@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0f172a" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>Quit Zyn — Nicotine Tracker</title>
+<style>
+  :root {
+    --bg: #0b1120;
+    --bg-soft: #0f172a;
+    --card: #172033;
+    --card-hi: #1e293b;
+    --line: #263449;
+    --text: #e8eef7;
+    --muted: #93a3b8;
+    --accent: #34d399;
+    --accent-dim: #10b981;
+    --warn: #f59e0b;
+    --danger: #f87171;
+    --radius: 18px;
+    --shadow: 0 10px 30px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(1200px 600px at 50% -10%, #14213b 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+    padding: max(16px, env(safe-area-inset-top)) 16px calc(28px + env(safe-area-inset-bottom));
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 520px; margin: 0 auto; }
+
+  header { text-align: center; margin: 6px 0 18px; }
+  header h1 { font-size: 20px; margin: 0; letter-spacing: .3px; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+
+  .card {
+    background: linear-gradient(180deg, var(--card-hi), var(--card));
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 18px;
+    margin-bottom: 14px;
+  }
+
+  /* Today hero */
+  .hero { text-align: center; padding-top: 22px; padding-bottom: 22px; }
+  .hero .count {
+    font-size: 72px; font-weight: 800; line-height: 1;
+    background: linear-gradient(180deg, #fff, #cbd5e1);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero .of-goal { color: var(--muted); font-size: 15px; margin-top: 8px; }
+  .hero .of-goal b { color: var(--text); }
+  .status-pill {
+    display: inline-block; margin-top: 12px; padding: 6px 14px; border-radius: 999px;
+    font-size: 13px; font-weight: 600;
+  }
+  .status-ok { background: rgba(52,211,153,.15); color: var(--accent); }
+  .status-warn { background: rgba(245,158,11,.15); color: var(--warn); }
+  .status-over { background: rgba(248,113,113,.15); color: var(--danger); }
+
+  .bar { height: 10px; border-radius: 999px; background: #0c1424; margin-top: 16px; overflow: hidden; border: 1px solid var(--line); }
+  .bar > span { display: block; height: 100%; border-radius: 999px; transition: width .4s ease, background .4s ease; }
+
+  .btn-row { display: flex; gap: 12px; margin-top: 18px; }
+  button { font-family: inherit; cursor: pointer; border: none; }
+  .btn {
+    flex: 1; padding: 16px; border-radius: 14px; font-size: 16px; font-weight: 700;
+    transition: transform .06s ease, filter .2s ease;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn-primary { background: linear-gradient(180deg, var(--accent), var(--accent-dim)); color: #04231a; }
+  .btn-ghost { background: var(--card-hi); color: var(--text); border: 1px solid var(--line); flex: 0 0 96px; }
+  .btn-ghost:disabled { opacity: .4; cursor: default; }
+
+  /* Stats grid */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+  .stat .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
+  .stat .v { font-size: 24px; font-weight: 800; margin-top: 4px; }
+  .stat .s { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .v.good { color: var(--accent); }
+  .v.bad { color: var(--danger); }
+
+  .section-title { font-size: 13px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); margin: 4px 2px 10px; }
+
+  /* Chart */
+  .chart { display: flex; align-items: flex-end; gap: 6px; height: 130px; padding-top: 8px; }
+  .chart .col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
+  .chart .colbar-wrap { width: 100%; flex: 1; display: flex; align-items: flex-end; }
+  .chart .colbar { width: 100%; border-radius: 6px 6px 3px 3px; background: linear-gradient(180deg, #38bdf8, #2563eb); min-height: 3px; transition: height .4s ease; position: relative; }
+  .chart .colbar.under { background: linear-gradient(180deg, var(--accent), var(--accent-dim)); }
+  .chart .colbar.over { background: linear-gradient(180deg, #fb7185, #e11d48); }
+  .chart .colnum { font-size: 11px; color: var(--muted); }
+  .chart .collbl { font-size: 10px; color: var(--muted); }
+  .goal-line { position: relative; height: 0; }
+
+  .row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: none; }
+  .row .t { font-size: 15px; }
+  .row .d { color: var(--muted); font-size: 12px; }
+  .row button { background: transparent; color: var(--muted); font-size: 13px; padding: 6px 10px; border-radius: 8px; }
+  .row button:active { background: var(--card-hi); }
+
+  label.field { display: block; margin-bottom: 14px; }
+  label.field span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  input[type=number], input[type=text] {
+    width: 100%; padding: 12px 14px; border-radius: 12px; background: #0c1424;
+    border: 1px solid var(--line); color: var(--text); font-size: 16px; font-family: inherit;
+  }
+  input:focus { outline: none; border-color: var(--accent-dim); }
+  .hint { color: var(--muted); font-size: 12px; margin-top: -8px; margin-bottom: 14px; }
+
+  details.settings summary { cursor: pointer; list-style: none; color: var(--muted); font-size: 13px; text-align: center; padding: 8px; }
+  details.settings summary::-webkit-details-marker { display: none; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(20px);
+    background: var(--card-hi); border: 1px solid var(--line); color: var(--text);
+    padding: 12px 18px; border-radius: 999px; font-size: 14px; box-shadow: var(--shadow);
+    opacity: 0; pointer-events: none; transition: opacity .25s ease, transform .25s ease; z-index: 50;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .muted-link { background: none; color: var(--muted); font-size: 12px; text-decoration: underline; padding: 4px; }
+  .foot { text-align: center; color: var(--muted); font-size: 11px; margin-top: 8px; line-height: 1.6; }
+  .encourage { text-align:center; color: var(--accent); font-size: 13px; min-height: 18px; margin-top: 10px; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🚭 Quit Zyn</h1>
+    <p>Track every pouch. Step down. Break free.</p>
+  </header>
+
+  <!-- Today -->
+  <div class="card hero">
+    <div class="count" id="todayCount">0</div>
+    <div class="of-goal">of today's limit: <b id="todayGoal">—</b></div>
+    <div class="bar"><span id="todayBar"></span></div>
+    <div><span class="status-pill status-ok" id="statusPill">On track</span></div>
+    <div class="encourage" id="encourage"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="logBtn">+ Log a pouch</button>
+      <button class="btn btn-ghost" id="undoBtn" disabled>Undo</button>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="grid">
+    <div class="stat"><div class="k">Current streak</div><div class="v good" id="streak">0</div><div class="s">days at or under limit</div></div>
+    <div class="stat"><div class="k">7-day average</div><div class="v" id="avg7">0</div><div class="s">pouches / day</div></div>
+    <div class="stat"><div class="k">Money saved</div><div class="v good" id="moneySaved">$0</div><div class="s" id="moneySavedSub">vs. your baseline</div></div>
+    <div class="stat"><div class="k">Nicotine avoided</div><div class="v good" id="nicAvoided">0 mg</div><div class="s" id="nicAvoidedSub">vs. your baseline</div></div>
+  </div>
+
+  <!-- Chart -->
+  <div class="card">
+    <div class="section-title">Last 14 days</div>
+    <div class="chart" id="chart"></div>
+  </div>
+
+  <!-- Today's log -->
+  <div class="card">
+    <div class="section-title">Today's pouches</div>
+    <div id="todayLog"><div class="row"><div class="t" style="color:var(--muted)">No pouches logged yet today. 💪</div></div></div>
+  </div>
+
+  <!-- Settings -->
+  <details class="settings">
+    <summary>⚙︎ Settings &amp; step-down plan</summary>
+    <div class="card" style="margin-top:10px">
+      <label class="field"><span>Starting daily amount (your baseline)</span>
+        <input type="number" id="setBaseline" min="1" step="1" /></label>
+      <label class="field"><span>Target daily limit right now</span>
+        <input type="number" id="setGoal" min="0" step="1" /></label>
+      <div class="hint">Auto step-down reduces your limit over time. Turn it off to set the limit manually.</div>
+      <label class="field"><span>Auto step-down: reduce limit by 1 every N days</span>
+        <input type="number" id="setStepDays" min="0" step="1" /></label>
+      <div class="hint">Set to 0 to disable auto step-down.</div>
+      <label class="field"><span>Nicotine per pouch (mg)</span>
+        <input type="number" id="setMg" min="0" step="0.5" /></label>
+      <label class="field"><span>Price per pouch ($)</span>
+        <input type="number" id="setPrice" min="0" step="0.01" /></label>
+      <button class="btn btn-primary" id="saveSettings" style="width:100%">Save settings</button>
+      <div style="text-align:center;margin-top:14px">
+        <button class="muted-link" id="exportBtn">Export data</button> ·
+        <button class="muted-link" id="importBtn">Import</button> ·
+        <button class="muted-link" id="resetBtn">Reset all</button>
+      </div>
+      <input type="file" id="importFile" accept="application/json" style="display:none" />
+    </div>
+  </details>
+
+  <div class="foot">
+    All data stays private on this device (nothing is uploaded).<br />
+    Add to your home screen for one-tap logging. You've got this.
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+  var STORE = "quitzyn.v1";
+
+  var DEFAULTS = {
+    baseline: 15,      // baseline pouches/day when you started
+    goal: 15,          // current daily limit
+    stepDays: 3,       // reduce limit by 1 every N days (0 = off)
+    startDate: todayKey(),
+    mgPerPouch: 6,     // mg nicotine per pouch
+    pricePerPouch: 0.35,
+    logs: {}           // { "YYYY-MM-DD": [timestamp, timestamp, ...] }
+  };
+
+  var state = load();
+
+  // ---------- storage ----------
+  function load() {
+    try {
+      var raw = localStorage.getItem(STORE);
+      if (!raw) return Object.assign({}, DEFAULTS, { logs: {} });
+      var s = JSON.parse(raw);
+      return Object.assign({}, DEFAULTS, s, { logs: s.logs || {} });
+    } catch (e) {
+      return Object.assign({}, DEFAULTS, { logs: {} });
+    }
+  }
+  function save() { localStorage.setItem(STORE, JSON.stringify(state)); }
+
+  // ---------- date helpers ----------
+  function todayKey(d) {
+    d = d || new Date();
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  }
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+  function keyMinus(days) {
+    var d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - days);
+    return todayKey(d);
+  }
+  function daysSinceStart() {
+    var start = new Date(state.startDate + "T00:00:00");
+    var now = new Date(); now.setHours(0, 0, 0, 0);
+    var diff = Math.floor((now - start) / 86400000);
+    return diff < 0 ? 0 : diff;
+  }
+
+  // ---------- goal computation ----------
+  // Current limit steps down from baseline toward goal over time.
+  function currentLimit() {
+    if (!state.stepDays || state.stepDays <= 0) return Math.max(0, state.goal);
+    var steps = Math.floor(daysSinceStart() / state.stepDays);
+    var lim = state.baseline - steps;
+    if (lim < state.goal) lim = state.goal;   // never below your target floor
+    return Math.max(0, lim);
+  }
+
+  function countOn(key) { return (state.logs[key] || []).length; }
+
+  // ---------- actions ----------
+  function logPouch() {
+    var k = todayKey();
+    if (!state.logs[k]) state.logs[k] = [];
+    state.logs[k].push(Date.now());
+    save(); render();
+    var over = countOn(k) > currentLimit();
+    toast(over ? "Logged. Over limit — try to ride out the next craving." : "Logged. Craving passes in ~3 min. 💪");
+  }
+  function undo() {
+    var k = todayKey();
+    if (state.logs[k] && state.logs[k].length) {
+      state.logs[k].pop();
+      if (!state.logs[k].length) delete state.logs[k];
+      save(); render();
+      toast("Removed last pouch.");
+    }
+  }
+  function removeAt(ts) {
+    var k = todayKey();
+    var arr = state.logs[k] || [];
+    var i = arr.indexOf(ts);
+    if (i > -1) { arr.splice(i, 1); if (!arr.length) delete state.logs[k]; save(); render(); }
+  }
+
+  // ---------- derived stats ----------
+  function streak() {
+    // Consecutive days (ending today or yesterday) at/under that day's limit,
+    // counted only within your tracking period so empty pre-start days don't inflate it.
+    var s = 0;
+    var maxDays = daysSinceStart() + 1; // never count days before you started tracking
+    for (var i = 0; i < maxDays; i++) {
+      var k = keyMinus(i);
+      var c = countOn(k);
+      var limitThatDay = limitForKey(k);
+      if (i === 0 && c === 0) { continue; } // today not yet logged — don't break streak
+      if (c <= limitThatDay) s++;
+      else break;
+    }
+    return s;
+  }
+  function limitForKey(k) {
+    if (!state.stepDays || state.stepDays <= 0) return Math.max(0, state.goal);
+    var start = new Date(state.startDate + "T00:00:00");
+    var that = new Date(k + "T00:00:00");
+    var diff = Math.floor((that - start) / 86400000);
+    if (diff < 0) diff = 0;
+    var steps = Math.floor(diff / state.stepDays);
+    var lim = state.baseline - steps;
+    if (lim < state.goal) lim = state.goal;
+    return Math.max(0, lim);
+  }
+  function avg7() {
+    var total = 0;
+    for (var i = 1; i <= 7; i++) total += countOn(keyMinus(i));
+    return total / 7;
+  }
+  function savedVsBaseline() {
+    // Sum over all logged days: (baseline - actual) when positive.
+    var pouchesSaved = 0;
+    Object.keys(state.logs).forEach(function (k) {
+      var diff = state.baseline - countOn(k);
+      if (diff > 0) pouchesSaved += diff;
+    });
+    return pouchesSaved;
+  }
+
+  // ---------- render ----------
+  function render() {
+    var k = todayKey();
+    var c = countOn(k);
+    var limit = currentLimit();
+
+    $("todayCount").textContent = c;
+    $("todayGoal").textContent = limit + (limit === 1 ? " pouch" : " pouches");
+
+    var pct = limit > 0 ? Math.min(100, (c / limit) * 100) : (c > 0 ? 100 : 0);
+    var bar = $("todayBar");
+    bar.style.width = pct + "%";
+    var pill = $("statusPill");
+    if (c > limit) {
+      bar.style.background = "linear-gradient(90deg,#fb7185,#e11d48)";
+      pill.className = "status-pill status-over"; pill.textContent = (c - limit) + " over limit";
+    } else if (limit > 0 && c === limit) {
+      bar.style.background = "linear-gradient(90deg,#f59e0b,#f59e0b)";
+      pill.className = "status-pill status-warn"; pill.textContent = "At your limit";
+    } else {
+      bar.style.background = "linear-gradient(90deg,#34d399,#10b981)";
+      pill.className = "status-pill status-ok";
+      pill.textContent = (limit - c) + " left today";
+    }
+
+    $("undoBtn").disabled = c === 0;
+
+    // stats
+    $("streak").textContent = streak();
+    $("avg7").textContent = avg7().toFixed(1);
+
+    var saved = savedVsBaseline();
+    $("moneySaved").textContent = "$" + (saved * state.pricePerPouch).toFixed(2);
+    $("nicAvoided").textContent = fmtMg(saved * state.mgPerPouch);
+
+    renderChart();
+    renderTodayLog();
+    renderEncourage(c, limit);
+  }
+
+  function fmtMg(mg) {
+    if (mg >= 1000) return (mg / 1000).toFixed(1) + " g";
+    return Math.round(mg) + " mg";
+  }
+
+  function renderChart() {
+    var days = [];
+    var max = 1;
+    for (var i = 13; i >= 0; i--) {
+      var k = keyMinus(i);
+      var c = countOn(k);
+      var lim = limitForKey(k);
+      days.push({ k: k, c: c, lim: lim, i: i });
+      if (c > max) max = c;
+      if (lim > max) max = lim;
+    }
+    var el = $("chart"); el.innerHTML = "";
+    var dow = ["S", "M", "T", "W", "T", "F", "S"];
+    days.forEach(function (d) {
+      var col = document.createElement("div"); col.className = "col";
+      var wrap = document.createElement("div"); wrap.className = "colbar-wrap";
+      var b = document.createElement("div"); b.className = "colbar";
+      if (d.c === 0) { b.className += ""; }
+      else if (d.c <= d.lim) b.className += " under";
+      else b.className += " over";
+      b.style.height = ((d.c / max) * 100) + "%";
+      if (d.c === 0) b.style.background = "#1e293b";
+      b.title = d.k + ": " + d.c + " (limit " + d.lim + ")";
+      wrap.appendChild(b);
+      var num = document.createElement("div"); num.className = "colnum"; num.textContent = d.c;
+      var lbl = document.createElement("div"); lbl.className = "collbl";
+      lbl.textContent = dow[new Date(d.k + "T00:00:00").getDay()];
+      col.appendChild(wrap); col.appendChild(num); col.appendChild(lbl);
+      el.appendChild(col);
+    });
+  }
+
+  function renderTodayLog() {
+    var arr = (state.logs[todayKey()] || []).slice().reverse();
+    var el = $("todayLog");
+    if (!arr.length) {
+      el.innerHTML = '<div class="row"><div class="t" style="color:var(--muted)">No pouches logged yet today. 💪</div></div>';
+      return;
+    }
+    el.innerHTML = "";
+    arr.forEach(function (ts, idx) {
+      var row = document.createElement("div"); row.className = "row";
+      var left = document.createElement("div");
+      var t = document.createElement("div"); t.className = "t";
+      t.textContent = "Pouch #" + (arr.length - idx);
+      var d = document.createElement("div"); d.className = "d";
+      d.textContent = new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      left.appendChild(t); left.appendChild(d);
+      var btn = document.createElement("button"); btn.textContent = "Remove";
+      btn.onclick = function () { removeAt(ts); };
+      row.appendChild(left); row.appendChild(btn);
+      el.appendChild(row);
+    });
+  }
+
+  function renderEncourage(c, limit) {
+    var el = $("encourage");
+    var msg = "";
+    var st = streak();
+    if (c === 0) msg = st > 0 ? ("🔥 " + st + "-day streak — keep it going.") : "A fresh day. Every skipped pouch counts.";
+    else if (c < limit) msg = "Nicely under your limit.";
+    else if (c === limit) msg = "You've hit your limit — you can stop here.";
+    else msg = "Over for today. Tomorrow resets. Be kind to yourself.";
+    el.textContent = msg;
+  }
+
+  // ---------- settings ----------
+  function openSettingsFields() {
+    $("setBaseline").value = state.baseline;
+    $("setGoal").value = state.goal;
+    $("setStepDays").value = state.stepDays;
+    $("setMg").value = state.mgPerPouch;
+    $("setPrice").value = state.pricePerPouch;
+  }
+  function saveSettings() {
+    state.baseline = clampInt($("setBaseline").value, 1, 100, state.baseline);
+    state.goal = clampInt($("setGoal").value, 0, 100, state.goal);
+    state.stepDays = clampInt($("setStepDays").value, 0, 365, state.stepDays);
+    state.mgPerPouch = clampFloat($("setMg").value, 0, 100, state.mgPerPouch);
+    state.pricePerPouch = clampFloat($("setPrice").value, 0, 100, state.pricePerPouch);
+    save(); render(); toast("Settings saved.");
+  }
+  function clampInt(v, lo, hi, dflt) { v = parseInt(v, 10); if (isNaN(v)) return dflt; return Math.min(hi, Math.max(lo, v)); }
+  function clampFloat(v, lo, hi, dflt) { v = parseFloat(v); if (isNaN(v)) return dflt; return Math.min(hi, Math.max(lo, v)); }
+
+  // ---------- data mgmt ----------
+  function exportData() {
+    var blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = "quitzyn-backup-" + todayKey() + ".json";
+    a.click(); URL.revokeObjectURL(url);
+  }
+  function importData(file) {
+    var r = new FileReader();
+    r.onload = function () {
+      try {
+        var s = JSON.parse(r.result);
+        state = Object.assign({}, DEFAULTS, s, { logs: s.logs || {} });
+        save(); openSettingsFields(); render(); toast("Data imported.");
+      } catch (e) { toast("Import failed — invalid file."); }
+    };
+    r.readAsText(file);
+  }
+  function resetAll() {
+    if (!confirm("Erase all logged pouches and settings? This cannot be undone.")) return;
+    state = Object.assign({}, DEFAULTS, { logs: {}, startDate: todayKey() });
+    save(); openSettingsFields(); render(); toast("Everything reset.");
+  }
+
+  // ---------- ui utils ----------
+  function $(id) { return document.getElementById(id); }
+  var toastTimer;
+  function toast(msg) {
+    var t = $("toast"); t.textContent = msg; t.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2200);
+  }
+
+  // ---------- wire up ----------
+  $("logBtn").onclick = logPouch;
+  $("undoBtn").onclick = undo;
+  $("saveSettings").onclick = saveSettings;
+  $("exportBtn").onclick = exportData;
+  $("resetBtn").onclick = resetAll;
+  $("importBtn").onclick = function () { $("importFile").click(); };
+  $("importFile").onchange = function (e) { if (e.target.files[0]) importData(e.target.files[0]); };
+
+  // keyboard: press "l" to log (desktop convenience)
+  document.addEventListener("keydown", function (e) {
+    if (e.target.tagName === "INPUT") return;
+    if (e.key === "l" || e.key === "L") logPouch();
+    if (e.key === "z" || e.key === "Z") undo();
+  });
+
+  // Re-render at midnight rollover if the app stays open
+  setInterval(function () {
+    if (render._lastDay !== todayKey()) { render._lastDay = todayKey(); render(); }
+  }, 30000);
+
+  openSettingsFields();
+  render._lastDay = todayKey();
+  render();
+})();
+</script>
+</body>
+</html>
