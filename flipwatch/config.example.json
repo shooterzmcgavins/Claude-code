@@ -1,0 +1,43 @@
+{
+  "ntfyTopic": "PUT-A-LONG-RANDOM-TOPIC-NAME-HERE-eg-flipwatch-hx83k2p9",
+  "intervalMinutes": 5,
+  "jitterMinutes": 3,
+  "activeHours": { "start": 7, "end": 23 },
+  "keywordBlocklist": ["ikea", "particle board", "broken", "parts only"],
+  "searches": [
+    {
+      "name": "Dressers",
+      "url": "https://www.facebook.com/marketplace/newbern/search?query=solid%20wood%20dresser&maxPrice=80&daysSinceListed=1",
+      "maxPrice": 80
+    },
+    {
+      "name": "Penn reels",
+      "url": "https://www.facebook.com/marketplace/newbern/search?query=penn%20reel&daysSinceListed=1",
+      "maxPrice": 60
+    },
+    {
+      "name": "Tackle lots",
+      "url": "https://www.facebook.com/marketplace/newbern/search?query=tackle%20box%20lot&daysSinceListed=1",
+      "maxPrice": 60
+    },
+    {
+      "name": "Tool lots",
+      "url": "https://www.facebook.com/marketplace/newbern/search?query=tool%20lot&daysSinceListed=1",
+      "maxPrice": 100
+    },
+    {
+      "name": "Milwaukee/DeWalt",
+      "url": "https://www.facebook.com/marketplace/newbern/search?query=milwaukee%20dewalt&maxPrice=100&daysSinceListed=1",
+      "maxPrice": 100
+    },
+    {
+      "name": "Moving/PCS sales",
+      "url": "https://www.facebook.com/marketplace/newbern/search?query=moving%20sale&daysSinceListed=1"
+    },
+    {
+      "name": "Vintage audio",
+      "url": "https://www.facebook.com/marketplace/newbern/search?query=vintage%20receiver&maxPrice=120&daysSinceListed=1",
+      "maxPrice": 120
+    }
+  ]
+}
