@@ -69,13 +69,41 @@ local `fb-profile` folder — you only do it once). The first sweep records
 what's already listed without notifying; alerts start on the next cycle.
 Leave the window open and minimized.
 
+## Smart mode: only ping when it's profitable
+
+With `anthropicApiKey` set in `config.json` (and the PriceLens comps server
+running — see `../pricelens/README.md`), FlipWatch appraises every new listing
+before deciding whether to buzz you:
+
+1. Claude reads the listing title + asking price and works out the exact eBay
+   sold-listings search for the item (or skips listings too generic to identify).
+2. The PriceLens server pulls **real eBay sold comps** for it.
+3. Fee math runs; if estimated profit (median sold − fees − shipping − asking
+   price) clears `minProfit` (default $25), your phone buzzes with the numbers:
+   `+$42 est: Penn 704Z Spinfisher — Ask $15 · sells ~$70 (23 eBay solds)`.
+4. Everything else is logged to the console but stays silent.
+
+Tuning: raise `minProfit` if you're getting too many marginal pings; lower it
+(or delete `anthropicApiKey` to return to raw-ping mode) if it's too quiet.
+Each appraisal costs a few cents of API credit; comps are free from your own
+PC and cached for a day. If the API or comps server is down, FlipWatch fails
+open — it pings the raw listing rather than silently dropping a possible deal.
+
+Two caveats worth knowing:
+- The check runs on the listing **title only** (FlipWatch deliberately doesn't
+  open every listing page — that would multiply its Facebook footprint). A
+  vague title on a great item ("old fishing reel $10") gets skipped. Your eyes
+  on Marketplace push notifications still catch those.
+- Estimated profit assumes the item matches its title and is in sellable
+  condition. Tap through and check photos before driving anywhere.
+
 ## Using it
 
 - **Notification arrives** → tap it → listing opens → tap Facebook's
-  "Is this available?" → then send a photo/screenshot of the listing to Claude
-  for the price verdict before you commit to anything.
+  "Is this available?" to claim your place in line, then check the photos
+  against the numbers in the ping.
 - The golden rule still applies: never pay more than **1/3 of expected net
-  resale**. Claim first, appraise second, walk away freely.
+  resale**. Claim first, verify condition second, walk away freely.
 
 ## Troubleshooting
 

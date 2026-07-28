@@ -1,5 +1,8 @@
 {
   "ntfyTopic": "PUT-A-LONG-RANDOM-TOPIC-NAME-HERE-eg-flipwatch-hx83k2p9",
+  "anthropicApiKey": "sk-ant-PASTE-YOUR-KEY-OR-DELETE-THIS-LINE-FOR-RAW-PINGS",
+  "compsUrl": "http://localhost:8484",
+  "minProfit": 25,
   "intervalMinutes": 5,
   "jitterMinutes": 3,
   "activeHours": { "start": 7, "end": 23 },

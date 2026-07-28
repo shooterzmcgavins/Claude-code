@@ -84,6 +84,82 @@ function priceNumber(price) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+// ----- Profit pipeline: title → eBay search query → real comps → fee math -----
+
+async function identifyFromTitle(title, askPrice) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": config.anthropicApiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: config.model || "claude-opus-5",
+      max_tokens: 1000,
+      messages: [{
+        role: "user",
+        content: `You triage Facebook Marketplace listings for a reseller in New Bern, NC. Given only a listing title and asking price, decide whether it's a specific, identifiable item worth checking eBay sold comps for.
+
+Listing title: "${title}"
+Asking price: $${askPrice ?? "unknown"}
+
+Reply with ONLY a JSON object, no code fence:
+{"skip":false,"reason":"short","search_query":"the exact eBay sold-listings search a reseller would run (brand + model, no filler)","platform":"eBay|Mercari|Facebook local","ship_cost":0}
+
+skip:true when the title is too generic to identify a specific item (e.g. "dresser", "misc lot"), or is a service, rental, or obvious junk. platform: "Facebook local" for heavy/bulky items (ship_cost 0). ship_cost: estimated USD to ship if sold online.`,
+      }],
+    }),
+  });
+  if (!res.ok) throw new Error(`anthropic HTTP ${res.status}`);
+  const msg = await res.json();
+  if (msg.stop_reason === "refusal") return { skip: true, reason: "refused" };
+  const text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  const start = text.lastIndexOf("{");
+  return JSON.parse(text.slice(start, text.lastIndexOf("}") + 1));
+}
+
+async function getComps(query) {
+  const base = (config.compsUrl || "http://localhost:8484").replace(/\/$/, "");
+  const res = await fetch(`${base}/comps?q=${encodeURIComponent(query)}`);
+  if (!res.ok) throw new Error(`comps HTTP ${res.status}`);
+  return res.json();
+}
+
+function feeMath(platform, price, shipCost) {
+  let fees = 0, ship = shipCost || 0;
+  if (/ebay/i.test(platform)) fees = 0.136 * (price + ship) + 0.4;
+  else if (/mercari/i.test(platform)) fees = 0.1 * price;
+  else { fees = 0; ship = 0; } // Facebook local
+  return price - fees - ship;
+}
+
+// Returns a notification payload if profitable, null if not worth pinging.
+async function profitCheck(search, item, title, askPrice) {
+  const ident = await identifyFromTitle(title, askPrice);
+  if (ident.skip) {
+    console.log(`  skip (${ident.reason}): ${title}`);
+    return null;
+  }
+  const comps = await getComps(ident.search_query);
+  if (!comps.count || comps.count < 3) {
+    console.log(`  skip (only ${comps.count ?? 0} comps for "${ident.search_query}"): ${title}`);
+    return null;
+  }
+  const net = feeMath(ident.platform, comps.median, ident.ship_cost);
+  const profit = askPrice != null ? net - askPrice : null;
+  const minProfit = config.minProfit ?? 25;
+  if (profit == null || profit < minProfit) {
+    console.log(`  skip (est profit $${profit?.toFixed(0) ?? "?"} < $${minProfit}): ${title}`);
+    return null;
+  }
+  return {
+    title: `+$${profit.toFixed(0)} est: ${title.slice(0, 60)}`,
+    body: `Ask $${askPrice} · sells ~$${comps.median.toFixed(0)} (${comps.count} eBay solds) · net ~$${net.toFixed(0)} on ${ident.platform} [${search.name}]`,
+    url: item.href,
+  };
+}
+
 async function collectListings(page) {
   return page.$$eval('a[href*="/marketplace/item/"]', (links) =>
     links.map((a) => ({
@@ -135,11 +211,22 @@ async function checkSearch(page, search) {
       continue;
 
     console.log(`NEW [${search.name}] ${price} — ${title}`);
-    await notify({
-      title: `${search.name}: ${price}`,
-      body: title,
-      url: item.href,
-    });
+
+    if (config.anthropicApiKey) {
+      // Smart mode: appraise against real eBay comps; ping only if profitable.
+      try {
+        const ping = await profitCheck(search, item, title, n);
+        if (ping) await notify(ping);
+      } catch (err) {
+        // Fail open: if the appraisal pipeline is down, ping the raw listing
+        // rather than silently dropping a possible deal.
+        console.error(`  appraisal failed (${err.message}) — pinging raw listing`);
+        await notify({ title: `${search.name}: ${price}`, body: title, url: item.href });
+      }
+    } else {
+      // No API key configured: original behavior, ping every new listing.
+      await notify({ title: `${search.name}: ${price}`, body: title, url: item.href });
+    }
     await sleep(rand(500, 1500));
   }
 
