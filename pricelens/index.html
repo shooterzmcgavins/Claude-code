@@ -62,6 +62,10 @@
   .verdict.MAYBE { color: var(--amber); }
   .verdict.PASS { color: var(--red); }
   .item-name { font-size: 1.05rem; font-weight: 600; margin: 0.2rem 0 0.8rem; }
+  .source-tag { display: inline-block; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; border-radius: 4px; padding: 0.15rem 0.45rem; margin-bottom: 0.6rem; }
+  .source-tag.live { background: rgba(82,183,136,0.15); color: var(--green); }
+  .source-tag.est { background: rgba(224,164,88,0.15); color: var(--amber); }
   .rows { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 1rem; font-size: 0.95rem; }
   .rows dt { color: var(--ink-soft); }
   .rows dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
@@ -70,6 +74,13 @@
   .maxbuy .label { color: var(--ink-soft); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; }
   .maxbuy .val { font-size: 1.6rem; font-weight: 800; color: var(--green); font-variant-numeric: tabular-nums; }
   .notes { margin-top: 0.8rem; font-size: 0.9rem; color: var(--ink-soft); }
+  .comps { margin-top: 0.9rem; border-top: 1px solid var(--rule); padding-top: 0.7rem; }
+  .comps h3 { margin: 0 0 0.4rem; font-size: 0.75rem; color: var(--ink-soft);
+    text-transform: uppercase; letter-spacing: 0.08em; }
+  .comps ul { margin: 0; padding: 0; list-style: none; font-size: 0.85rem; }
+  .comps li { display: flex; justify-content: space-between; gap: 0.75rem; padding: 0.15rem 0; }
+  .comps li span:first-child { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .comps li span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
   .raw { margin-top: 1rem; font-size: 0.85rem; white-space: pre-wrap; }
   .ebay-link { display: block; margin-top: 0.9rem; text-align: center; color: var(--green);
     font-weight: 600; font-size: 0.95rem; text-decoration: none; border: 1px solid var(--rule);
@@ -94,7 +105,7 @@
 <body>
 <main>
   <h1>🔎 PriceLens <button class="gear" id="gearBtn">API key</button></h1>
-  <p class="tagline">Snap a photo → recent sold prices, fees, and your max buy price.</p>
+  <p class="tagline">Snap a photo → real eBay sold comps, fees, and your max buy price.</p>
 
   <label class="snap" id="snapZone">
     <span id="snapHint"><strong>Tap to snap or choose a photo</strong><br>whole item + maker's mark works best</span>
@@ -118,6 +129,11 @@
 <script>
 const $ = (id) => document.getElementById(id);
 let imageData = null; // { media_type, data }
+
+// When the page is served by server.js, /comps is same-origin and gives us
+// real eBay sold-listing data. Opened as a bare file, we fall back to the
+// model's own web search.
+const HAS_COMPS_SERVER = location.protocol.startsWith("http");
 
 // ----- API key management -----
 const keyDialog = $("keyDialog");
@@ -158,92 +174,162 @@ function updateGo() {
   else if (!imageData) $("status").textContent = "";
 }
 
-// ----- The appraisal call -----
-const PROMPT = (note) => `You are a resale arbitrage appraiser for a flipper in New Bern, NC with a small bankroll.
+// ----- Claude call helper -----
+async function claude(body) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": localStorage.getItem("plens_key"),
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({}));
+    throw new Error(b?.error?.message || `HTTP ${res.status}`);
+  }
+  const msg = await res.json();
+  if (msg.stop_reason === "refusal") throw new Error("The model declined this request.");
+  return msg.content.filter(b => b.type === "text").map(b => b.text).join("\n");
+}
 
-1. Identify the item in the photo as precisely as you can (brand, model, era). Use the user's note if given.
-2. Use web search to find what this item has RECENTLY SOLD for (eBay sold listings, price guides, recent sales data — not asking prices).
-3. Pick the best selling platform: eBay (13.6% + $0.40 fee, on item + shipping), Mercari (10%), Facebook Marketplace local (0%, no shipping), Poshmark (20%, fashion only). Heavy/bulky = sell local.
-4. Estimate: realistic sell price range, fees, shipping cost if shipped, net profit at the midpoint.
-5. Max buy price = one third of expected net resale (after fees/shipping). Verdict: GRAB if the note's asking price (or a typical thrift price) is at/under max buy; MAYBE if close or identification is uncertain; PASS otherwise.
+function lastJson(text) {
+  const start = text.lastIndexOf("{");
+  if (start === -1) return null;
+  try { return JSON.parse(text.slice(start, text.lastIndexOf("}") + 1)); } catch { return null; }
+}
 
+// ----- Stage 1: identification (vision only, fast) -----
+const IDENTIFY_PROMPT = (note) => `Identify the item in this photo for a resale flipper. Be as specific as brand/model/era allows.
 User note: ${note || "(none)"}
 
-After your research, end your reply with ONLY a JSON object on the final lines, no code fence, exactly this shape:
-{"item":"...","confidence":"high|medium|low","sell_low":0,"sell_high":0,"platform":"...","fees_and_shipping":0,"net_mid":0,"max_buy":0,"verdict":"GRAB|MAYBE|PASS","notes":"one or two short sentences: key comps found, condition caveats, what to double-check in person"}`;
+Reply with ONLY a JSON object, no code fence:
+{"item":"precise name","search_query":"the exact search string a reseller would type into eBay to find this item's sold listings (brand + model, no filler words)","confidence":"high|medium|low","platform":"eBay|Mercari|Facebook local|Poshmark","ship_cost":0,"asking_price":null,"notes":"one short sentence: condition observations from the photo, repro/damage tells to check"}
 
+platform: eBay for collectibles/vintage/anything searched by model number; Facebook local for heavy or bulky items (ship_cost 0); Mercari for generic mid-priced goods; Poshmark for fashion.
+ship_cost: your estimate in USD of what shipping this item costs the seller (0 if Facebook local).
+asking_price: the number if the user's note mentions what the seller wants, else null.`;
+
+// ----- Stage 2 fallback: model-run web search when no comps server -----
+const FALLBACK_PROMPT = (note) => `You are a resale arbitrage appraiser. Identify the item in the photo, then use web search to find what it has RECENTLY SOLD for (sold listings, not asking prices). Pick the best platform: eBay (13.6% + $0.40 fee on item+shipping), Mercari (10%), Facebook Marketplace local (0%), Poshmark (20%, fashion). Max buy = one third of net after fees/shipping.
+User note: ${note || "(none)"}
+End your reply with ONLY a JSON object on the final lines, no code fence:
+{"item":"...","confidence":"high|medium|low","sell_low":0,"sell_high":0,"platform":"...","fees_and_shipping":0,"net_mid":0,"max_buy":0,"verdict":"GRAB|MAYBE|PASS","notes":"short: comps found, what to check in person"}`;
+
+// ----- Fee math (deterministic, runs locally) -----
+function feeMath(platform, price, shipCost) {
+  let fees = 0, ship = shipCost || 0;
+  if (/ebay/i.test(platform)) fees = 0.136 * (price + ship) + 0.40;
+  else if (/mercari/i.test(platform)) fees = 0.10 * price;
+  else if (/poshmark/i.test(platform)) { fees = price < 15 ? 2.95 : 0.20 * price; ship = 0; }
+  else { fees = 0; ship = 0; } // Facebook local
+  return { fees, ship, net: price - fees - ship };
+}
+
+function verdictFor(asking, maxBuy, confidence) {
+  if (confidence === "low") return "MAYBE";
+  if (asking == null) return "MAYBE";
+  if (asking <= maxBuy) return "GRAB";
+  if (asking <= maxBuy * 1.25) return "MAYBE";
+  return "PASS";
+}
+
+// ----- Main flow -----
 $("goBtn").onclick = async () => {
-  const key = localStorage.getItem("plens_key");
   $("goBtn").disabled = true;
   $("out").innerHTML = "";
-  $("status").textContent = "Identifying and searching sold prices… (15–60s)";
+  const note = $("note").value.trim();
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
+    if (HAS_COMPS_SERVER) {
+      $("status").textContent = "Identifying…";
+      const identText = await claude({
         model: "claude-opus-5",
-        max_tokens: 6000,
-        tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 5 }],
-        messages: [{
-          role: "user",
-          content: [
-            { type: "image", source: { type: "base64", media_type: imageData.media_type, data: imageData.data } },
-            { type: "text", text: PROMPT($("note").value.trim()) },
-          ],
-        }],
-      }),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body?.error?.message || `HTTP ${res.status}`);
+        max_tokens: 2000,
+        messages: [{ role: "user", content: [
+          { type: "image", source: { type: "base64", media_type: imageData.media_type, data: imageData.data } },
+          { type: "text", text: IDENTIFY_PROMPT(note) },
+        ]}],
+      });
+      const ident = lastJson(identText);
+      if (!ident?.search_query) throw new Error("Couldn't identify the item — try a clearer photo of the maker's mark.");
+
+      $("status").textContent = `Identified: ${ident.item} — pulling real eBay sold comps…`;
+      const comps = await fetch(`/comps?q=${encodeURIComponent(ident.search_query)}`).then(r => r.json());
+
+      if (comps.count >= 3) {
+        const { fees, ship, net } = feeMath(ident.platform, comps.median, ident.ship_cost);
+        const maxBuy = Math.max(0, net / 3);
+        renderCard({
+          verdict: verdictFor(ident.asking_price, maxBuy, ident.confidence),
+          item: ident.item, confidence: ident.confidence,
+          sell_low: comps.low, sell_high: comps.high, mid: comps.median,
+          platform: ident.platform, fees_and_shipping: fees + ship,
+          net_mid: net, max_buy: maxBuy, notes: ident.notes,
+          comps, source: "live", search_query: ident.search_query,
+        });
+        $("status").textContent = "";
+        return;
+      }
+      $("status").textContent = `Only ${comps.count ?? 0} eBay comps found — falling back to web-search estimate…`;
     }
-    const msg = await res.json();
-    if (msg.stop_reason === "refusal") throw new Error("The model declined this request.");
-    const text = msg.content.filter(b => b.type === "text").map(b => b.text).join("\n");
-    render(text);
+
+    // Fallback: single call with model-run web search
+    $("status").textContent = HAS_COMPS_SERVER ? $("status").textContent : "Identifying and searching sold prices… (15–60s)";
+    const text = await claude({
+      model: "claude-opus-5",
+      max_tokens: 6000,
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 5 }],
+      messages: [{ role: "user", content: [
+        { type: "image", source: { type: "base64", media_type: imageData.media_type, data: imageData.data } },
+        { type: "text", text: FALLBACK_PROMPT(note) },
+      ]}],
+    });
+    const d = lastJson(text);
+    if (!d?.verdict) {
+      $("out").innerHTML = `<div class="result"><div class="raw">${escapeHtml(text)}</div></div>`;
+    } else {
+      renderCard({
+        verdict: d.verdict, item: d.item, confidence: d.confidence,
+        sell_low: d.sell_low, sell_high: d.sell_high, mid: (d.sell_low + d.sell_high) / 2,
+        platform: d.platform, fees_and_shipping: d.fees_and_shipping,
+        net_mid: d.net_mid, max_buy: d.max_buy, notes: d.notes,
+        comps: null, source: "est", search_query: d.item,
+      });
+    }
     $("status").textContent = "";
   } catch (err) {
-    $("status").innerHTML = `<span class="err">${escapeHtml(err.message)}</span>` +
-      (String(err.message).includes("Failed to fetch")
-        ? '<br><span>Network/CORS error — check your connection, or that the key is valid.</span>' : "");
+    $("status").innerHTML = `<span class="err">${escapeHtml(err.message)}</span>`;
   } finally {
     $("goBtn").disabled = false;
   }
 };
 
-function render(text) {
-  // The JSON object is on the final lines; find the last {...} span.
-  let data = null;
-  const start = text.lastIndexOf("{");
-  if (start !== -1) {
-    try { data = JSON.parse(text.slice(start, text.lastIndexOf("}") + 1)); } catch (_) {}
-  }
-  const out = $("out");
-  if (!data || !data.verdict) {
-    out.innerHTML = `<div class="result"><div class="raw">${escapeHtml(text)}</div></div>`;
-    return;
-  }
+function renderCard(d) {
   const money = (n) => "$" + Number(n).toFixed(0);
-  out.innerHTML = `
+  const compsHtml = d.comps?.samples?.length
+    ? `<div class="comps"><h3>Recent eBay solds (${d.comps.count} found)</h3><ul>` +
+      d.comps.samples.map(s => `<li><span>${escapeHtml(s.title)}</span><span>${money(s.price)}</span></li>`).join("") +
+      `</ul></div>`
+    : "";
+  $("out").innerHTML = `
     <div class="result">
-      <div class="verdict ${escapeHtml(data.verdict)}">${escapeHtml(data.verdict)}</div>
-      <div class="item-name">${escapeHtml(data.item)} <span style="color:var(--ink-soft);font-weight:400">· ${escapeHtml(data.confidence)} confidence</span></div>
+      <div class="verdict ${escapeHtml(d.verdict)}">${escapeHtml(d.verdict)}</div>
+      <div class="item-name">${escapeHtml(d.item)} <span style="color:var(--ink-soft);font-weight:400">· ${escapeHtml(d.confidence)} confidence</span></div>
+      <span class="source-tag ${d.source === "live" ? "live" : "est"}">${d.source === "live" ? "real eBay sold data" : "web-search estimate"}</span>
       <dl class="rows">
-        <dt>Sells for</dt><dd>${money(data.sell_low)}–${money(data.sell_high)}</dd>
-        <dt>Best platform</dt><dd>${escapeHtml(data.platform)}</dd>
-        <dt>Fees + shipping</dt><dd>−${money(data.fees_and_shipping)}</dd>
-        <dt>Net (midpoint)</dt><dd>${money(data.net_mid)}</dd>
+        <dt>Sold range</dt><dd>${money(d.sell_low)}–${money(d.sell_high)}</dd>
+        <dt>Typical (median)</dt><dd>${money(d.mid)}</dd>
+        <dt>Best platform</dt><dd>${escapeHtml(d.platform)}</dd>
+        <dt>Fees + shipping</dt><dd>−${money(d.fees_and_shipping)}</dd>
+        <dt>Net profit basis</dt><dd>${money(d.net_mid)}</dd>
       </dl>
-      <div class="maxbuy"><span class="label">Max buy price</span><span class="val">${money(data.max_buy)}</span></div>
-      <div class="notes">${escapeHtml(data.notes || "")}</div>
-      <a class="ebay-link" href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(data.item)}&LH_Sold=1&LH_Complete=1" target="_blank" rel="noopener">
-        Verify on eBay sold listings →
+      <div class="maxbuy"><span class="label">Max buy price</span><span class="val">${money(d.max_buy)}</span></div>
+      <div class="notes">${escapeHtml(d.notes || "")}</div>
+      ${compsHtml}
+      <a class="ebay-link" href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(d.search_query)}&LH_Sold=1&LH_Complete=1" target="_blank" rel="noopener">
+        Open on eBay →
       </a>
     </div>`;
 }

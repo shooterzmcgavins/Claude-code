@@ -1,25 +1,47 @@
 # PriceLens
 
-Snap a photo of an item → AI identifies it, searches recent **sold** prices on
-the live web, applies platform fees, and gives you a verdict with a **max buy
+Snap a photo of an item → AI identifies it → **real eBay sold-listing comps**
+pulled through a browser on your PC → fee math → verdict with a **max buy
 price** (the ⅓-of-net rule). Built for thrift stores, estate sales, and
 Marketplace scrolling.
 
-One file, no build, no server. The app calls the Anthropic API directly from
-your browser; your API key is stored only in your browser's localStorage and is
-sent nowhere except api.anthropic.com.
+Two pieces:
 
-## Setup (~5 minutes)
+- `server.js` runs on your PC. It serves the app and exposes `/comps`, which
+  opens eBay's public sold-listings search in a local browser (no eBay login,
+  no eBay account involved), parses the sold prices, and caches them for a day.
+  Requests are queued and spaced ~5s apart so usage looks like a person browsing.
+- `index.html` is the app. It sends your photo to Claude for identification,
+  asks the server for real comps on the identified item, and computes fees,
+  net, and max-buy locally. If the server can't find comps (or you open the
+  file without the server), it falls back to a Claude web-search estimate —
+  the card is labeled **"real eBay sold data"** vs **"web-search estimate"**
+  so you always know which you're looking at.
+
+## Setup (~10 minutes)
 
 1. **Get an Anthropic API key**: [console.anthropic.com](https://console.anthropic.com)
-   → API keys → Create key. Add $5–10 of credit — each appraisal costs roughly
-   **5–15 cents** (one Claude Opus call with vision + a few web searches).
-2. **Open the app**: open `index.html` in any browser. To use it on your phone
-   (where it shines), either:
-   - host this folder anywhere static (GitHub Pages: repo Settings → Pages →
-     deploy from branch — then visit `https://<you>.github.io/<repo>/pricelens/`), or
-   - email/AirDrop the file to your phone and open it in the browser.
-3. Tap **API key** (top right), paste your key, save.
+   → API keys → Create key. Add $5–10 of credit — identification costs a few
+   cents per photo (comps come from your own PC, free).
+2. **Start the server** (same prerequisites as FlipWatch — Node.js + Chrome):
+
+   ```
+   cd pricelens
+   npm install
+   node server.js
+   ```
+
+3. **Open the app**: `http://localhost:8484` on the PC. From your phone:
+   - **at home**: `http://<your-pc's-local-ip>:8484` (same wifi; find the IP
+     with `ipconfig` — the 192.168.x.x one)
+   - **out sourcing**: install [Tailscale](https://tailscale.com) (free) on the
+     PC and phone — then the same URL with the PC's Tailscale IP works from
+     anywhere, thrift store included, as long as the PC is on.
+4. Tap **API key** (top right), paste your key, save.
+
+If comps come back empty repeatedly, eBay may be soft-blocking headless
+browsing — restart the server with `HEADED=1 node server.js` to use a visible
+browser window, which usually resolves it.
 
 ## Using it
 
