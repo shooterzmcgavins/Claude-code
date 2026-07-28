@@ -100,6 +100,20 @@
   dialog button { margin-top: 0.8rem; background: var(--green-deep); color: #fff; border: none;
     border-radius: 8px; padding: 0.6rem 1.1rem; font: inherit; font-weight: 600; cursor: pointer; }
   .err { color: var(--red); }
+
+  .tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+  .tab { flex: 1; background: var(--card); color: var(--ink-soft); border: 1px solid var(--rule);
+    border-radius: 10px; padding: 0.6rem; font: inherit; font-weight: 600; cursor: pointer; }
+  .tab.active { color: var(--ink); border-color: var(--green); }
+  #dealCount { color: var(--green); }
+  .deals-list { display: flex; flex-direction: column; gap: 0.7rem; }
+  .deal { display: block; background: var(--card); border: 1px solid var(--rule); border-radius: 12px;
+    padding: 0.85rem 1rem; text-decoration: none; color: var(--ink); }
+  .deal .top { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; }
+  .deal .profit { color: var(--green); font-weight: 800; font-size: 1.15rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .deal .name { font-weight: 600; }
+  .deal .sub { margin-top: 0.25rem; color: var(--ink-soft); font-size: 0.85rem; }
+  .deals-empty { color: var(--ink-soft); text-align: center; padding: 2rem 1rem; font-size: 0.95rem; }
 </style>
 </head>
 <body>
@@ -107,6 +121,16 @@
   <h1>🔎 PriceLens <button class="gear" id="gearBtn">API key</button></h1>
   <p class="tagline">Snap a photo → real eBay sold comps, fees, and your max buy price.</p>
 
+  <nav class="tabs" id="tabs" hidden>
+    <button class="tab active" data-tab="appraise">Appraise</button>
+    <button class="tab" data-tab="deals">Deals <span id="dealCount"></span></button>
+  </nav>
+
+  <section id="dealsPane" hidden>
+    <div id="dealsList" class="deals-list"></div>
+  </section>
+
+  <section id="appraisePane">
   <label class="snap" id="snapZone">
     <span id="snapHint"><strong>Tap to snap or choose a photo</strong><br>whole item + maker's mark works best</span>
     <input type="file" id="photo" accept="image/*" capture="environment">
@@ -117,6 +141,7 @@
   <button class="go" id="goBtn" disabled>What's it worth?</button>
   <div class="status" id="status"></div>
   <div id="out"></div>
+  </section>
 
   <dialog id="keyDialog">
     <h2>Anthropic API key</h2>
@@ -336,6 +361,45 @@ function renderCard(d) {
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// ----- Deals feed (from FlipWatch, when served by server.js) -----
+function agoText(iso) {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60 * 24) return `${Math.round(mins / 60)}h ago`;
+  return `${Math.round(mins / 1440)}d ago`;
+}
+
+async function loadDeals() {
+  try {
+    const deals = await fetch("/deals").then(r => r.json());
+    $("dealCount").textContent = deals.length ? `(${deals.length})` : "";
+    $("dealsList").innerHTML = deals.length
+      ? deals.map(d => `
+        <a class="deal" href="${escapeHtml(d.url)}" target="_blank" rel="noopener">
+          <div class="top"><span class="name">${escapeHtml(d.item)}</span><span class="profit">+$${escapeHtml(String(d.profit))}</span></div>
+          <div class="sub">Ask $${escapeHtml(String(d.ask))} · sells ~$${Math.round(d.median)} (${escapeHtml(String(d.compsCount))} solds) · net ~$${escapeHtml(String(d.net))} on ${escapeHtml(d.platform)} · ${agoText(d.at)}</div>
+        </a>`).join("")
+      : `<div class="deals-empty">No profitable finds yet.<br>FlipWatch posts deals here as it catches them.</div>`;
+  } catch {
+    $("dealsList").innerHTML = `<div class="deals-empty">Couldn't reach the deals feed.</div>`;
+  }
+}
+
+if (HAS_COMPS_SERVER) {
+  $("tabs").hidden = false;
+  document.querySelectorAll(".tab").forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll(".tab").forEach(b => b.classList.toggle("active", b === btn));
+      const showDeals = btn.dataset.tab === "deals";
+      $("dealsPane").hidden = !showDeals;
+      $("appraisePane").hidden = showDeals;
+      if (showDeals) loadDeals();
+    };
+  });
+  loadDeals(); // populate the badge count on load
+  setInterval(() => { if (!$("dealsPane").hidden) loadDeals(); }, 60000);
 }
 
 updateGo();

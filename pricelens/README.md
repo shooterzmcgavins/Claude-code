@@ -31,13 +31,27 @@ Two pieces:
    node server.js
    ```
 
-3. **Open the app**: `http://localhost:8484` on the PC. From your phone:
-   - **at home**: `http://<your-pc's-local-ip>:8484` (same wifi; find the IP
-     with `ipconfig` — the 192.168.x.x one)
-   - **out sourcing**: install [Tailscale](https://tailscale.com) (free) on the
-     PC and phone — then the same URL with the PC's Tailscale IP works from
-     anywhere, thrift store included, as long as the PC is on.
+3. **Make it your private website with Tailscale** (recommended):
+   1. Install [Tailscale](https://tailscale.com) (free) on the PC and on your
+      phone, sign both into the same account.
+   2. Start the server — it detects Tailscale and prints your works-anywhere
+      URL, e.g. `http://100.101.102.103:8484`. **Bookmark that on your phone**
+      (Share → Add to Home Screen makes it feel like an app).
+   3. That URL works from anywhere — thrift store, estate sale, the truck — as
+      long as the PC is on. Traffic never touches the public internet: it runs
+      over your private encrypted Tailscale network, and nobody outside your
+      tailnet can reach the server at all.
+
+   Without Tailscale it still works at home via `http://<pc-ip>:8484` on wifi.
 4. Tap **API key** (top right), paste your key, save.
+
+## The Deals tab
+
+When FlipWatch (smart mode) is running, every profitable find it catches is
+posted to this server and shows up under **Deals** — newest first, with the
+estimated profit, the ask vs. sold-median math, and a tap-through to the
+listing. Your phone ping and this feed are the same data; the feed is where
+you catch up on anything you missed. Deals persist in `deals.json` (last 200).
 
 If comps come back empty repeatedly, eBay may be soft-blocking headless
 browsing — restart the server with `HEADED=1 node server.js` to use a visible

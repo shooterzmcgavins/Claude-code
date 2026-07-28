@@ -86,33 +86,45 @@ function priceNumber(price) {
 
 // ----- Profit pipeline: title → eBay search query → real comps → fee math -----
 
-async function identifyFromTitle(title, askPrice) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": config.anthropicApiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: config.model || "claude-opus-5",
-      max_tokens: 1000,
-      messages: [{
-        role: "user",
-        content: `You triage Facebook Marketplace listings for a reseller in New Bern, NC. Given only a listing title and asking price, decide whether it's a specific, identifiable item worth checking eBay sold comps for.
+async function identifyListing(title, askPrice, imageUrl) {
+  const prompt = `You triage Facebook Marketplace listings for a reseller in New Bern, NC. Given a listing title, asking price${imageUrl ? ", and the listing photo" : ""}, decide whether it's a specific, identifiable item worth checking eBay sold comps for.${imageUrl ? " Use the photo to pin down brand/model when the title is vague." : ""}
 
 Listing title: "${title}"
 Asking price: $${askPrice ?? "unknown"}
 
 Reply with ONLY a JSON object, no code fence:
-{"skip":false,"reason":"short","search_query":"the exact eBay sold-listings search a reseller would run (brand + model, no filler)","platform":"eBay|Mercari|Facebook local","ship_cost":0}
+{"skip":false,"reason":"short","item":"what it actually is","search_query":"the exact eBay sold-listings search a reseller would run (brand + model, no filler)","platform":"eBay|Mercari|Facebook local","ship_cost":0}
 
-skip:true when the title is too generic to identify a specific item (e.g. "dresser", "misc lot"), or is a service, rental, or obvious junk. platform: "Facebook local" for heavy/bulky items (ship_cost 0). ship_cost: estimated USD to ship if sold online.`,
-      }],
-    }),
-  });
-  if (!res.ok) throw new Error(`anthropic HTTP ${res.status}`);
-  const msg = await res.json();
+skip:true only when even the photo doesn't reveal a specific resellable item, or it's a service, rental, or obvious junk. platform: "Facebook local" for heavy/bulky items (ship_cost 0). ship_cost: estimated USD to ship if sold online.`;
+
+  const content = imageUrl
+    ? [{ type: "image", source: { type: "url", url: imageUrl } }, { type: "text", text: prompt }]
+    : prompt;
+
+  const call = async (body) => {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": config.anthropicApiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`anthropic HTTP ${res.status}`);
+    return res.json();
+  };
+
+  let msg;
+  const base = { model: config.model || "claude-opus-5", max_tokens: 1000 };
+  try {
+    msg = await call({ ...base, messages: [{ role: "user", content }] });
+  } catch (err) {
+    // Facebook CDN image URLs expire; if the image fetch broke the request,
+    // retry on the title alone rather than losing the listing.
+    if (imageUrl) msg = await call({ ...base, messages: [{ role: "user", content: prompt }] });
+    else throw err;
+  }
   if (msg.stop_reason === "refusal") return { skip: true, reason: "refused" };
   const text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
   const start = text.lastIndexOf("{");
@@ -134,9 +146,9 @@ function feeMath(platform, price, shipCost) {
   return price - fees - ship;
 }
 
-// Returns a notification payload if profitable, null if not worth pinging.
+// Returns {notification, deal} if profitable, null if not worth pinging.
 async function profitCheck(search, item, title, askPrice) {
-  const ident = await identifyFromTitle(title, askPrice);
+  const ident = await identifyListing(title, askPrice, item.img);
   if (ident.skip) {
     console.log(`  skip (${ident.reason}): ${title}`);
     return null;
@@ -154,10 +166,40 @@ async function profitCheck(search, item, title, askPrice) {
     return null;
   }
   return {
-    title: `+$${profit.toFixed(0)} est: ${title.slice(0, 60)}`,
-    body: `Ask $${askPrice} · sells ~$${comps.median.toFixed(0)} (${comps.count} eBay solds) · net ~$${net.toFixed(0)} on ${ident.platform} [${search.name}]`,
-    url: item.href,
+    notification: {
+      title: `+$${profit.toFixed(0)} est: ${ident.item || title.slice(0, 60)}`,
+      body: `Ask $${askPrice} · sells ~$${comps.median.toFixed(0)} (${comps.count} eBay solds) · net ~$${net.toFixed(0)} on ${ident.platform} [${search.name}]`,
+      url: item.href,
+    },
+    deal: {
+      item: ident.item || title,
+      listingTitle: title,
+      ask: askPrice,
+      median: comps.median,
+      low: comps.low,
+      high: comps.high,
+      compsCount: comps.count,
+      net: Math.round(net),
+      profit: Math.round(profit),
+      platform: ident.platform,
+      query: ident.search_query,
+      search: search.name,
+      url: item.href,
+    },
   };
+}
+
+async function postDeal(deal) {
+  try {
+    const base = (config.compsUrl || "http://localhost:8484").replace(/\/$/, "");
+    await fetch(`${base}/deals`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(deal),
+    });
+  } catch (err) {
+    console.error("  deal feed post failed:", err.message);
+  }
 }
 
 async function collectListings(page) {
@@ -165,6 +207,7 @@ async function collectListings(page) {
     links.map((a) => ({
       href: a.href.split("?")[0],
       text: a.innerText || "",
+      img: a.querySelector("img")?.src || null,
     }))
   );
 }
@@ -215,8 +258,11 @@ async function checkSearch(page, search) {
     if (config.anthropicApiKey) {
       // Smart mode: appraise against real eBay comps; ping only if profitable.
       try {
-        const ping = await profitCheck(search, item, title, n);
-        if (ping) await notify(ping);
+        const result = await profitCheck(search, item, title, n);
+        if (result) {
+          await notify(result.notification);
+          await postDeal(result.deal);
+        }
       } catch (err) {
         // Fail open: if the appraisal pipeline is down, ping the raw listing
         // rather than silently dropping a possible deal.

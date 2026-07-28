@@ -11,13 +11,32 @@
 
 import { chromium } from "playwright";
 import http from "http";
-import { readFileSync } from "fs";
+import os from "os";
+import { readFileSync, writeFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 8484;
 const HEADED = process.env.HEADED === "1"; // set HEADED=1 if results come back empty
+
+// ----- Deals feed (populated by FlipWatch smart mode) -----
+const DEALS_PATH = join(ROOT, "deals.json");
+let deals = existsSync(DEALS_PATH) ? JSON.parse(readFileSync(DEALS_PATH, "utf8")) : [];
+function addDeal(deal) {
+  deals.unshift({ ...deal, at: new Date().toISOString() });
+  deals = deals.slice(0, 200);
+  writeFileSync(DEALS_PATH, JSON.stringify(deals, null, 1));
+}
+
+function tailscaleIp() {
+  for (const addrs of Object.values(os.networkInterfaces())) {
+    for (const a of addrs ?? []) {
+      if (a.family === "IPv4" && a.address.startsWith("100.")) return a.address;
+    }
+  }
+  return null;
+}
 
 const cache = new Map(); // query -> { at, data }
 const CACHE_MS = 24 * 60 * 60 * 1000;
@@ -131,6 +150,26 @@ http
       return;
     }
 
+    if (u.pathname === "/deals" && req.method === "POST") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        try {
+          addDeal(JSON.parse(body));
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end('{"ok":true}');
+        } catch {
+          res.writeHead(400);
+          res.end();
+        }
+      });
+      return;
+    }
+    if (u.pathname === "/deals") {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify(deals));
+    }
+
     // static: serve the app
     const file = u.pathname === "/" ? "/index.html" : u.pathname;
     try {
@@ -143,7 +182,13 @@ http
     }
   })
   .listen(PORT, () => {
+    const ts = tailscaleIp();
     console.log(`PriceLens server running:`);
-    console.log(`  on this PC:      http://localhost:${PORT}`);
-    console.log(`  from your phone: http://<this-pc's-ip>:${PORT}  (same wifi, or Tailscale)`);
+    console.log(`  on this PC:        http://localhost:${PORT}`);
+    if (ts) {
+      console.log(`  from your phone:   http://${ts}:${PORT}   ← Tailscale, works anywhere. Bookmark this.`);
+    } else {
+      console.log(`  from your phone:   install Tailscale on this PC + your phone, restart this server,`);
+      console.log(`                     and a works-anywhere URL will print here.`);
+    }
   });
