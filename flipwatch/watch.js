@@ -146,6 +146,11 @@ function feeMath(platform, price, shipCost) {
   return price - fees - ship;
 }
 
+// Cap on Claude appraisals per sweep cycle so wide-net searches can't run up
+// the API bill. Reset in the main loop; when exhausted, listings are logged
+// but not appraised.
+let appraisalBudget = 0;
+
 // Returns {notification, deal} if profitable, null if not worth pinging.
 async function profitCheck(search, item, title, askPrice) {
   const ident = await identifyListing(title, askPrice, item.img);
@@ -256,6 +261,11 @@ async function checkSearch(page, search) {
     console.log(`NEW [${search.name}] ${price} — ${title}`);
 
     if (config.anthropicApiKey) {
+      if (appraisalBudget <= 0) {
+        console.log(`  appraisal budget for this cycle exhausted — logged only: ${title}`);
+        continue;
+      }
+      appraisalBudget--;
       // Smart mode: appraise against real eBay comps; ping only if profitable.
       try {
         const result = await profitCheck(search, item, title, n);
@@ -313,6 +323,8 @@ async function main() {
       await sleep(10 * 60 * 1000);
       continue;
     }
+
+    appraisalBudget = config.maxAppraisalsPerCycle ?? 40;
 
     // Randomize order so the pattern isn't identical every cycle.
     const searches = [...config.searches].sort(() => Math.random() - 0.5);

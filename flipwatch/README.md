@@ -83,6 +83,32 @@ before deciding whether to buzz you:
    `+$42 est: Penn 704Z Spinfisher — Ask $15 · sells ~$70 (23 eBay solds)`.
 4. Everything else is logged to the console but stays silent.
 
+### Casting a wide net (find anything profitable, not just known categories)
+
+In smart mode the searches don't need to be smart — the appraiser is. The
+example config includes **wide-net searches** ("vintage", "antique", "lot",
+"estate" — capped by price and filtered to the last 24 hours) that surface a
+broad stream of listings; Claude looks at each photo + title and decides what
+it is, and the comps decide if it's money. You can add your own nets:
+
+- Any broad keyword works as a net: "retro", "old", "collection", "downsizing",
+  "moving must go", "barn find".
+- Or browse a whole Marketplace **category** in your logged-in browser
+  (e.g. Antiques & Collectibles, Musical Instruments, Sporting Goods), sort by
+  newest, and paste that URL in as a search — categories don't need keywords
+  at all.
+- Keep `maxPrice` caps on wide nets — they control volume and match a small
+  bankroll.
+
+**Cost control:** every appraised listing costs a few cents of API credit, and
+wide nets see a lot of listings. `maxAppraisalsPerCycle` (default 40) caps how
+many listings get appraised per sweep — beyond that they're logged, not
+appraised. With defaults, worst case is roughly a few dollars a day; watch the
+console for "budget exhausted" messages and either raise the cap, tighten the
+nets' `maxPrice`, or raise `intervalMinutes`. Setting `"model":
+"claude-haiku-4-5"` in config makes triage ~5x cheaper if volume gets high
+(slightly weaker identification on obscure items).
+
 Tuning: raise `minProfit` if you're getting too many marginal pings; lower it
 (or delete `anthropicApiKey` to return to raw-ping mode) if it's too quiet.
 Each appraisal costs a few cents of API credit; comps are free from your own

@@ -3,6 +3,7 @@
   "anthropicApiKey": "sk-ant-PASTE-YOUR-KEY-OR-DELETE-THIS-LINE-FOR-RAW-PINGS",
   "compsUrl": "http://localhost:8484",
   "minProfit": 25,
+  "maxAppraisalsPerCycle": 40,
   "intervalMinutes": 5,
   "jitterMinutes": 3,
   "activeHours": { "start": 7, "end": 23 },
@@ -41,6 +42,26 @@
       "name": "Vintage audio",
       "url": "https://www.facebook.com/marketplace/newbern/search?query=vintage%20receiver&maxPrice=120&daysSinceListed=1",
       "maxPrice": 120
+    },
+    {
+      "name": "Wide net: vintage",
+      "url": "https://www.facebook.com/marketplace/newbern/search?query=vintage&maxPrice=100&daysSinceListed=1",
+      "maxPrice": 100
+    },
+    {
+      "name": "Wide net: antique",
+      "url": "https://www.facebook.com/marketplace/newbern/search?query=antique&maxPrice=100&daysSinceListed=1",
+      "maxPrice": 100
+    },
+    {
+      "name": "Wide net: lots & bundles",
+      "url": "https://www.facebook.com/marketplace/newbern/search?query=lot&maxPrice=80&daysSinceListed=1",
+      "maxPrice": 80
+    },
+    {
+      "name": "Wide net: estate",
+      "url": "https://www.facebook.com/marketplace/newbern/search?query=estate&maxPrice=150&daysSinceListed=1",
+      "maxPrice": 150
     }
   ]
 }
