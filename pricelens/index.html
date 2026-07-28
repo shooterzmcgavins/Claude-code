@@ -71,6 +71,9 @@
   .maxbuy .val { font-size: 1.6rem; font-weight: 800; color: var(--green); font-variant-numeric: tabular-nums; }
   .notes { margin-top: 0.8rem; font-size: 0.9rem; color: var(--ink-soft); }
   .raw { margin-top: 1rem; font-size: 0.85rem; white-space: pre-wrap; }
+  .ebay-link { display: block; margin-top: 0.9rem; text-align: center; color: var(--green);
+    font-weight: 600; font-size: 0.95rem; text-decoration: none; border: 1px solid var(--rule);
+    border-radius: 10px; padding: 0.6rem; }
 
   dialog {
     background: var(--card); color: var(--ink); border: 1px solid var(--rule);
@@ -239,6 +242,9 @@ function render(text) {
       </dl>
       <div class="maxbuy"><span class="label">Max buy price</span><span class="val">${money(data.max_buy)}</span></div>
       <div class="notes">${escapeHtml(data.notes || "")}</div>
+      <a class="ebay-link" href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(data.item)}&LH_Sold=1&LH_Complete=1" target="_blank" rel="noopener">
+        Verify on eBay sold listings →
+      </a>
     </div>`;
 }
 
