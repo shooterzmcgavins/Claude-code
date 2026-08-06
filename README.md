@@ -1,22 +1,30 @@
-# Zyn Log
+# Daily Tracker
 
-A dead-simple, private app to log your Zyn (nicotine pouch) use. One tap per pouch — that's the whole idea. Watching the daily count is often enough to bring it down.
+A simple, private daily tracker for the things you want to keep an eye on — nicotine, water, coffee, food (calories + macros), weight, and anything else you add. One file, no accounts, no server; all data stays in your browser on your device.
 
-- **One tap to log a pouch.** Big count of how many you've had today.
-- **Nicotine (and optional cost) tally** for today, right under the count. Defaults to 3 mg per pouch; set a price to also see money spent (leave it blank to hide cost).
-- **Quit forecast.** Projects when you'll hit zero by fitting a line to your recent daily counts and finding where the downward trend reaches 0/day. Shows the date, how far off it is, and your reduction pace — and honestly says "no downward trend yet" when your counts aren't actually falling.
-- **Today's list** with timestamps, and a remove button on each.
-- **Last 7 days** at a glance, so you can see the trend.
-- **100% private.** Data is stored locally in your browser (`localStorage`). No account, no server, nothing uploaded.
+## What it tracks
+
+- **Zyn** — one-tap pouch logging with a nicotine (and optional cost) tally and a **quit forecast** that projects your zero date from your trend.
+- **Water** — tap to add a glass toward a daily goal.
+- **Coffee** — tap to count cups against a daily limit.
+- **Food** — log entries with **calories and macros** (protein / carbs / fat); see daily totals vs. goals.
+- **Weight** — log a daily weigh-in and watch the trend.
+- **Custom trackers** — add your own (steps, vitamins, workouts, mood…) as a tap-counter, a daily number, or a food-style tracker, each with its own icon and goal.
+
+Every tracker shows today's value, progress toward its goal, a 7-day sparkline, and an expandable list of entries and recent days. Tap the ⚙︎ on a card to edit goals, units, or delete it.
 
 ## How to use it
 
-1. Open `index.html` in any browser.
-2. On your phone, open it and **Add to Home Screen** so logging is one tap.
-3. Tap **+ Log a pouch** each time you use one.
+1. Open `index.html` in any browser (or the hosted URL).
+2. On your phone, open it and **Add to Home Screen** for one-tap access.
+3. Tap **+** on a card to log; tap **+ Food** / **Log** for food and weight; tap **＋ Add a tracker** to make your own.
 
-Desktop shortcuts: `L` to log, `Z` to undo. Use **Export** (at the bottom) to back up your data.
+Use **Export** to back up your data to a file and **Import** to restore it (handy before clearing your browser or switching devices).
+
+## Privacy
+
+All data is stored locally in your browser (`localStorage`). Nothing is uploaded, there are no accounts, and it works offline.
 
 ## Tech
 
-Single self-contained `index.html` — no build step, no dependencies, works offline.
+Single self-contained `index.html` — no build step, no dependencies.
