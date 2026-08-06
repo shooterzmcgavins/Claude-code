@@ -1,6 +1,8 @@
 # Daily Tracker
 
-A simple, private daily tracker for the things you want to keep an eye on — nicotine, water, coffee, food (calories + macros), weight, and anything else you add. One file, no accounts, no server; all data stays in your browser on your device.
+A private, MyFitnessPal-style daily tracker for the things you want to keep an eye on — food (calories + macros), nicotine, water, coffee, weight, and anything else you add. Light theme, blue accent, circular progress rings, and a meal-based food diary. One file, no accounts, no server; all data stays in your browser on your device.
+
+The Food card is a full diary: a calories-remaining ring, carb/protein/fat rings, and Breakfast / Lunch / Dinner / Snacks sections you add foods into.
 
 ## What it tracks
 
