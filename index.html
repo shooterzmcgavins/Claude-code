@@ -93,6 +93,8 @@ layout: null
   .madd { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
   .chip { background:var(--blue-soft); border:1px solid #D3E3FE; color:var(--blue-d); font-weight:700; font-size:14px; padding:10px 13px; border-radius:11px; }
   .chip:active { background:#dbe8fe; }
+  .chip.beer { background:#FFF4E5; border-color:#F6D9A8; color:#B4740E; }
+  .chip.beer:active { background:#FFE9CC; }
   .madd input { flex:1; min-width:74px; padding:11px 12px; border-radius:11px; background:#F4F6FA; border:1px solid var(--line); color:var(--text); font-size:16px; font-family:inherit; }
   .madd input:focus { outline:none; border-color:var(--blue); background:#fff; }
   .madd .addbtn { background:var(--blue); color:#fff; border:none; font-weight:800; font-size:15px; padding:11px 18px; border-radius:11px; }
@@ -178,7 +180,7 @@ layout: null
     return [
       { id:"food",   name:"Food",   emoji:"🍽️", type:"food", goalCal:2000, goalP:200, goalC:165, goalF:60 },
       { id:"zyn",    name:"Zyn",    emoji:"🚭", type:"counter", unit:"pouches", goalDir:"down", goal:null, nicotine:true, forecast:true, mgPerPouch:3, pricePerPouch:0 },
-      { id:"water",  name:"Water",  emoji:"💧", type:"measure", unit:"oz", goal:128, quick:[8,12,16,20,24] },
+      { id:"water",  name:"Water",  emoji:"💧", type:"measure", unit:"oz", goal:128, quick:[8,12,16,20,24], beerOffset:true },
       { id:"coffee", name:"Coffee", emoji:"☕", type:"counter", unit:"cups", goalDir:"down", goal:3 },
       { id:"weight", name:"Weight", emoji:"⚖️", type:"scalar", unit:"lb" }
     ];
@@ -208,6 +210,11 @@ layout: null
             var wd=s.data.water||{}; Object.keys(wd).forEach(function(day){ wd[day]=(wd[day]||[]).map(function(e){ return e.a!=null?e:{t:e.t,a:stepGuess}; }); });
           }
           s.waterMeasure1 = true;
+        }
+        if (!s.beerOffset1) {
+          var wtb = s.trackers.filter(function(t){ return t.id==="water"; })[0];
+          if (wtb && wtb.type==="measure") wtb.beerOffset = true;
+          s.beerOffset1 = true;
         }
         // ensure Food is first for the MFP-style dashboard layout
         s.trackers.sort(function(a,b){ return (a.id==="food"?-1:0) - (b.id==="food"?-1:0); });
@@ -372,18 +379,49 @@ layout: null
   }
 
   /* ---------- measure ---------- */
+  // Alcohol is a diuretic: ~10 mL extra urine per gram of alcohol.
+  // extra water (oz) = volOz * 29.5735 * (abv/100) * 0.789 (g alcohol) * 10 (mL) / 29.5735 (mL/oz)
+  //                  = volOz * abv * 0.0789
+  function beerOffsetOz(vol, abv){ return (vol||0) * (abv||0) * 0.0789; }
+  var BEER_PRESETS = [
+    { emoji:"🍺", label:"Beer 12·5%",   vol:12,  abv:5 },
+    { emoji:"🍺", label:"Light 12·4%",  vol:12,  abv:4 },
+    { emoji:"🍺", label:"IPA 12·7%",    vol:12,  abv:7 },
+    { emoji:"🍺", label:"Tallboy 16·8%",vol:16,  abv:8 },
+    { emoji:"🍷", label:"Wine 5·12%",   vol:5,   abv:12 },
+    { emoji:"🥃", label:"Shot 1.5·40%", vol:1.5, abv:40 }
+  ];
+  function beerBlock(t, n, off){
+    var chips=BEER_PRESETS.map(function(b){
+      return '<button class="chip beer" data-act="beeradd" data-id="'+t.id+'" data-vol="'+b.vol+'" data-abv="'+b.abv+'">'+b.emoji+' '+b.label+'</button>';
+    }).join("");
+    var status = n>0
+      ? '<div class="sub">🍺 <b>'+n+'</b> drink'+(n>1?'s':'')+' today <span class="dot">·</span> <b style="color:#B4740E">+'+off+' '+(t.unit||"oz")+'</b> added to your goal <button class="rm" data-act="beerundo" data-id="'+t.id+'" style="color:#B4740E">undo</button></div>'
+      : '<div class="sub" style="color:var(--muted)">Log a drink and I’ll add the water it costs you (~10 mL per gram of alcohol).</div>';
+    return '<div class="off-note" style="margin-top:14px">🍺 Drinking today? Add its water cost</div>'+
+      '<div class="madd">'+chips+'<button class="chip beer" data-act="beercustom" data-id="'+t.id+'">Custom…</button></div>'+status;
+  }
   function measureCard(t){
     var k=todayKey(), sum=daySum(t.id,k), val=Math.round(sum*10)/10;
     var node=el('<div class="card" data-id="'+t.id+'"></div>');
-    var ringHTML = t.goal? ring(val/t.goal,{size:64,color:BLUE,center:'<div class="mr-v">'+val+'</div>'}) : "";
-    var goalTxt = t.goal? '<div class="goal"><b>'+val+'</b> / '+t.goal+' '+(t.unit||"")+(val>=t.goal?' ✓':'')+'</div>' : '<div class="big">'+val+'<span class="u">'+(t.unit||"")+'</span></div>';
+    var beerN=0, beerOff=0, effGoal=t.goal;
+    if(t.beerOffset){ var ba=entriesOn("waterBeer",k); beerN=ba.length; beerOff=Math.round(ba.reduce(function(a,e){ return a+(e.off||0); },0)); if(t.goal) effGoal=t.goal+beerOff; }
+    var ringHTML = effGoal? ring(val/effGoal,{size:64,color:BLUE,center:'<div class="mr-v">'+val+'</div>'}) : "";
+    var goalTxt;
+    if(effGoal){
+      goalTxt='<div class="goal"><b>'+val+'</b> / '+effGoal+' '+(t.unit||"")+(val>=effGoal?' ✓':'')+'</div>'+
+        (beerOff>0?'<div class="goal" style="font-size:12px">'+t.goal+' base <span style="color:#B4740E">+ '+beerOff+' 🍺</span></div>':'');
+    } else {
+      goalTxt='<div class="big">'+val+'<span class="u">'+(t.unit||"")+'</span></div>';
+    }
     var quick=(t.quick&&t.quick.length?t.quick:[]).map(function(a){ return '<button class="chip" data-act="qadd" data-id="'+t.id+'" data-amt="'+a+'">+'+a+'</button>'; }).join("");
     node.innerHTML = chead(t) +
-      '<div class="mainrow">'+(t.goal?'<div class="ringwrap">'+ringHTML+'</div>':'')+
+      '<div class="mainrow">'+(effGoal?'<div class="ringwrap">'+ringHTML+'</div>':'')+
         '<div class="mrow-mid">'+goalTxt+'</div>'+
         '<div class="actions"><button class="mini" data-act="undo" data-id="'+t.id+'"'+(sum?'':' disabled')+'>−</button></div></div>'+
       '<div class="madd">'+quick+'<input class="mamt" type="number" inputmode="decimal" placeholder="'+(t.unit||"amount")+'" />'+
         '<button class="addbtn" data-act="addamt" data-id="'+t.id+'">Add</button></div>'+
+      (t.beerOffset?beerBlock(t,beerN,beerOff):"")+
       sparkHTML(t.id, function(id,kk){ return daySum(id,kk); }, t.goal, "up") + expandMeasure(t);
     return node;
   }
@@ -393,9 +431,19 @@ layout: null
       return '<div class="row"><span>'+(Math.round((e.a||0)*10)/10)+' '+(t.unit||"")+' <span class="d">'+new Date(e.t).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})+'</span></span>'+
         '<button class="rm" data-act="rmentry" data-id="'+t.id+'" data-t="'+e.t+'">Remove</button></div>';
     }).join(""):'<div class="row"><span class="empty">Nothing logged yet today.</span></div>';
+    var beerHTML="";
+    if(t.beerOffset){
+      var ba=entriesOn("waterBeer",todayKey()).slice().reverse();
+      if(ba.length){
+        beerHTML='<div class="goal" style="margin:12px 0 4px">🍺 Drinks today <span style="color:#B4740E">(each adds water)</span></div>'+ba.map(function(e){
+          return '<div class="row"><span>'+(Math.round((e.vol||0)*10)/10)+' oz · '+(e.abv||0)+'% <span class="d">+'+Math.round(e.off||0)+' oz water · '+new Date(e.t).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})+'</span></span>'+
+            '<button class="rm" data-act="beerrm" data-id="'+t.id+'" data-t="'+e.t+'">Remove</button></div>';
+        }).join("");
+      }
+    }
     var days=""; for(var i=0;i<7;i++){ var kk=keyMinus(i),s=Math.round(daySum(t.id,kk)*10)/10,dd=new Date(kk+"T00:00:00");
       days+='<div class="row'+(i===0?' today':'')+'"><span class="t">'+(i===0?"Today":(i===1?"Yesterday":dd.toLocaleDateString([],{weekday:"short",month:"numeric",day:"numeric"})))+'</span><span class="n">'+s+' '+(t.unit||"")+'</span></div>'; }
-    return '<details class="exp"><summary>Today’s entries &amp; last 7 days</summary>'+list+'<div class="goal" style="margin:10px 0 4px">Last 7 days</div>'+days+'</details>';
+    return '<details class="exp"><summary>Today’s entries &amp; last 7 days</summary>'+list+beerHTML+'<div class="goal" style="margin:10px 0 4px">Last 7 days</div>'+days+'</details>';
   }
 
   /* ---------- scalar (weight) ---------- */
@@ -430,6 +478,10 @@ layout: null
     if(act==="inc"){ pushEntry(id,todayKey(),{t:Date.now()}); save(); render(); toast(t.name+" +1"); }
     else if(act==="qadd"){ var qa=parseFloat(b.getAttribute("data-amt"))||0; if(qa){ pushEntry(id,todayKey(),{t:Date.now(),a:qa}); save(); render(); toast(t.name+" +"+qa+" "+(t.unit||"")); } }
     else if(act==="addamt"){ var inp=b.closest(".card").querySelector(".mamt"); var amt=parseFloat(inp.value)||0; if(amt<=0){ toast("Enter an amount."); return; } pushEntry(id,todayKey(),{t:Date.now(),a:amt}); save(); render(); toast(t.name+" +"+(Math.round(amt*10)/10)+" "+(t.unit||"")); }
+    else if(act==="beeradd"){ var bv=parseFloat(b.getAttribute("data-vol"))||0, bab=parseFloat(b.getAttribute("data-abv"))||0, boff=beerOffsetOz(bv,bab); pushEntry("waterBeer",todayKey(),{t:Date.now(),vol:bv,abv:bab,off:boff}); save(); render(); toast("🍺 +"+Math.round(boff)+" oz water to your goal"); }
+    else if(act==="beerundo"){ var bl=state.data.waterBeer&&state.data.waterBeer[todayKey()]; if(bl&&bl.length){ bl.pop(); if(!bl.length) delete state.data.waterBeer[todayKey()]; save(); render(); } }
+    else if(act==="beercustom"){ beerModal(t); }
+    else if(act==="beerrm"){ var bts=parseInt(b.getAttribute("data-t"),10), bl2=state.data.waterBeer&&state.data.waterBeer[todayKey()]; if(bl2){ var bix=bl2.map(function(e){return e.t;}).indexOf(bts); if(bix>-1){ bl2.splice(bix,1); if(!bl2.length) delete state.data.waterBeer[todayKey()]; save(); render(); } } }
     else if(act==="undo"){ var arr=state.data[id]&&state.data[id][todayKey()]; if(arr&&arr.length){ arr.pop(); if(!arr.length) delete state.data[id][todayKey()]; save(); render(); } }
     else if(act==="rmentry"){ removeEntry(id, parseInt(b.getAttribute("data-t"),10)); }
     else if(act==="addfood"){ foodModal(t, b.getAttribute("data-meal")||"snacks"); }
@@ -594,6 +646,21 @@ layout: null
       '<div class="sheet-actions"><button data-close="1">Cancel</button><button class="btn-primary" id="s_save">Save</button></div>');
     sheet.querySelector("#s_save").onclick=function(){ var v=numOrNull(sheet.querySelector("#s_val").value); if(v==null){ toast("Enter a number."); return; } pushEntry(t.id,todayKey(),{t:Date.now(),a:v}); save(); closeSheet(); render(); toast(t.name+" logged."); };
     wireClose(); setTimeout(function(){ sheet.querySelector("#s_val").focus(); }, 50);
+  }
+
+  function beerModal(t){
+    openSheet('<h2>Log a drink 🍺</h2><p class="hint">Alcohol is a diuretic, so each drink makes you pee out extra water (~10 mL per gram of alcohol). Enter the size and strength — I’ll add that water cost to today’s goal.</p>'+
+      '<div class="grid2"><label class="field"><span>Size (oz)</span><input id="bz_vol" type="number" inputmode="decimal" value="12" step="0.5" min="0" /></label>'+
+      '<label class="field"><span>Alcohol (ABV %)</span><input id="bz_abv" type="number" inputmode="decimal" value="5" step="0.1" min="0" /></label></div>'+
+      '<div class="sub" id="bz_prev" style="margin-top:0"></div>'+
+      '<div class="sheet-actions" style="margin-top:14px"><button data-close="1">Cancel</button><button class="btn-primary" id="bz_save">Add drink</button></div>');
+    var vv=sheet.querySelector("#bz_vol"), aa=sheet.querySelector("#bz_abv"), pv=sheet.querySelector("#bz_prev");
+    function upd(){ var v=parseFloat(vv.value)||0, a=parseFloat(aa.value)||0, off=beerOffsetOz(v,a), g=v*29.5735*(a/100)*0.789;
+      pv.innerHTML='≈ <b>'+(Math.round(g*10)/10)+' g</b> alcohol <span class="dot">·</span> adds <b style="color:#B4740E">+'+Math.round(off)+' oz</b> water to your goal'; }
+    vv.oninput=upd; aa.oninput=upd; upd();
+    sheet.querySelector("#bz_save").onclick=function(){ var bv=parseFloat(vv.value)||0, bab=parseFloat(aa.value)||0; if(bv<=0||bab<=0){ toast("Enter size and ABV."); return; }
+      var boff=beerOffsetOz(bv,bab); pushEntry("waterBeer",todayKey(),{t:Date.now(),vol:bv,abv:bab,off:boff}); save(); closeSheet(); render(); toast("🍺 +"+Math.round(boff)+" oz water to your goal"); };
+    wireClose(); setTimeout(function(){ vv.focus(); vv.select(); }, 50);
   }
 
   function editModal(t){
