@@ -77,6 +77,14 @@
   .spark .sb { flex: 1; background: #22304a; border-radius: 3px 3px 2px 2px; min-height: 2px; }
   .spark .sb.on { background: var(--accent); } .spark .sb.today { background: var(--blue); }
 
+  .madd { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+  .chip { background: var(--card-hi); border: 1px solid var(--line); color: var(--text); font-weight: 700; font-size: 14px; padding: 10px 12px; border-radius: 12px; }
+  .chip:active { background: #0c1424; }
+  .madd input { flex: 1; min-width: 70px; padding: 11px 12px; border-radius: 12px; background: #0c1424; border: 1px solid var(--line); color: var(--text); font-size: 16px; font-family: inherit; }
+  .madd input:focus { outline: none; border-color: var(--accent-dim); }
+  .madd .addbtn { background: linear-gradient(180deg, var(--accent), var(--accent-dim)); color: #04231a; font-weight: 800; font-size: 15px; padding: 11px 18px; border-radius: 12px; }
+  .off-note { color: var(--muted); font-size: 11px; margin: 14px 0 4px; text-transform: uppercase; letter-spacing: .5px; }
+
   details.exp { margin-top: 12px; }
   details.exp summary { cursor: pointer; list-style: none; color: var(--muted); font-size: 12px; padding: 4px 0; }
   details.exp summary::-webkit-details-marker { display: none; }
@@ -163,7 +171,7 @@
   function defaultTrackers(){
     return [
       { id:"zyn",    name:"Zyn",    emoji:"🚭", type:"counter", unit:"pouches", goalDir:"down", goal:null, nicotine:true, forecast:true, mgPerPouch:3, pricePerPouch:0 },
-      { id:"water",  name:"Water",  emoji:"💧", type:"counter", unit:"oz", step:16, goalDir:"up", goal:128 },
+      { id:"water",  name:"Water",  emoji:"💧", type:"measure", unit:"oz", goal:128, quick:[8,12,16,20,24] },
       { id:"coffee", name:"Coffee", emoji:"☕", type:"counter", unit:"cups",    goalDir:"down", goal:3 },
       { id:"food",   name:"Food",   emoji:"🍽️", type:"food",    goalCal:2000, goalP:200, goalC:165, goalF:60 },
       { id:"weight", name:"Weight", emoji:"⚖️", type:"scalar",  unit:"lb" }
@@ -188,13 +196,20 @@
           }
           s.macroPreset2 = true;
         }
-        // one-time: move Water from glasses to ounces with a bodyweight-based goal, if untouched
-        if (!s.waterOz1) {
+        // one-time: move Water to an ounces "measure" (typed amounts) with a bodyweight-based goal.
+        if (!s.waterMeasure1) {
           var wt = s.trackers.filter(function(t){ return t.id==="water"; })[0];
-          if (wt && wt.unit==="glasses" && wt.goal===8 && !wt.step) {
-            wt.unit="oz"; wt.step=16; wt.goal=128;
+          if (wt && wt.type==="counter") {
+            var stepGuess = wt.step || (wt.unit==="glasses" ? 8 : 1);
+            wt.type="measure"; wt.unit="oz";
+            if (wt.goal==null || wt.goal<=8) wt.goal=128;
+            wt.quick=[8,12,16,20,24]; delete wt.step; delete wt.goalDir;
+            var wd = s.data.water || {};
+            Object.keys(wd).forEach(function(day){
+              wd[day] = (wd[day]||[]).map(function(e){ return e.a!=null ? e : { t:e.t, a:stepGuess }; });
+            });
           }
-          s.waterOz1 = true;
+          s.waterMeasure1 = true;
         }
         return s;
       }
@@ -307,7 +322,43 @@
   function card(t){
     if (t.type==="food") return foodCard(t);
     if (t.type==="scalar") return scalarCard(t);
-    return counterCard(t); // counter + measure
+    if (t.type==="measure") return measureCard(t);
+    return counterCard(t);
+  }
+
+  function measureCard(t){
+    var k = todayKey(), sum = daySum(t.id, k), val = Math.round(sum*10)/10;
+    var node = el('<div class="card" data-id="'+t.id+'"></div>');
+    var goalTxt = "", bar = "";
+    if (t.goal){ goalTxt = '<div class="goal"><b>'+val+'</b> / '+t.goal+' '+(t.unit||"")+(val>=t.goal?' ✓':'')+'</div>'; bar = progressBar(val/t.goal, false); }
+    var quick = (t.quick&&t.quick.length ? t.quick : []).map(function(a){
+      return '<button class="chip" data-act="qadd" data-id="'+t.id+'" data-amt="'+a+'">+'+a+'</button>'; }).join("");
+    node.innerHTML =
+      '<div class="chead"><span class="emoji">'+t.emoji+'</span><span class="name">'+t.name+'</span>'+
+        '<button class="gear" data-act="edit" data-id="'+t.id+'">⚙︎</button></div>'+
+      '<div class="mainrow"><div><div class="big">'+val+'<span class="u">'+(t.unit||"")+'</span></div>'+goalTxt+'</div>'+
+        '<div class="actions"><button class="mini" data-act="undo" data-id="'+t.id+'"'+(sum?'':' disabled')+'>−</button></div></div>'+
+      bar +
+      '<div class="madd">'+quick+
+        '<input class="mamt" type="number" inputmode="decimal" placeholder="'+(t.unit||"amount")+'" />'+
+        '<button class="addbtn" data-act="addamt" data-id="'+t.id+'">Add</button></div>'+
+      sparkHTML(t.id, function(id,kk){ return daySum(id,kk); }, t.goal, "up") +
+      expandMeasure(t);
+    return node;
+  }
+  function expandMeasure(t){
+    var k = todayKey(), arr = entriesOn(t.id,k).slice().reverse();
+    var list = arr.length ? arr.map(function(e){
+      return '<div class="row"><span>'+(Math.round((e.a||0)*10)/10)+' '+(t.unit||"")+' <span class="d">'+
+        new Date(e.t).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})+'</span></span>'+
+        '<button class="rm" data-act="rmentry" data-id="'+t.id+'" data-t="'+e.t+'">Remove</button></div>';
+    }).join("") : '<div class="row"><span class="empty">Nothing logged yet today.</span></div>';
+    var days = "";
+    for (var i=0;i<7;i++){ var kk=keyMinus(i), s=Math.round(daySum(t.id,kk)*10)/10, dd=new Date(kk+"T00:00:00");
+      days += '<div class="row'+(i===0?' today':'')+'"><span class="t">'+(i===0?"Today":(i===1?"Yesterday":dd.toLocaleDateString([],{weekday:"short",month:"numeric",day:"numeric"})))+
+        '</span><span class="n">'+s+' '+(t.unit||"")+'</span></div>'; }
+    return '<details class="exp"><summary>Today’s entries &amp; last 7 days</summary>'+list+
+      '<div class="goal" style="margin:10px 0 4px">Last 7 days</div>'+days+'</details>';
   }
 
   function progressBar(frac, over){
@@ -442,6 +493,8 @@
     var b = e.target.closest("button[data-act]"); if (!b) return;
     var act = b.getAttribute("data-act"), id = b.getAttribute("data-id"), t = trackerById(id);
     if (act==="inc"){ pushEntry(id, todayKey(), { t: Date.now() }); save(); render(); toast(t.name+" +1"); }
+    else if (act==="qadd"){ var qa=parseFloat(b.getAttribute("data-amt"))||0; if(qa){ pushEntry(id, todayKey(), { t:Date.now(), a:qa }); save(); render(); toast(t.name+" +"+qa+" "+(t.unit||"")); } }
+    else if (act==="addamt"){ var inp=b.closest(".card").querySelector(".mamt"); var amt=parseFloat(inp.value)||0; if(amt<=0){ toast("Enter an amount."); return; } pushEntry(id, todayKey(), { t:Date.now(), a:amt }); save(); render(); toast(t.name+" +"+(Math.round(amt*10)/10)+" "+(t.unit||"")); }
     else if (act==="undo"){ var arr=state.data[id]&&state.data[id][todayKey()]; if(arr&&arr.length){ arr.pop(); if(!arr.length) delete state.data[id][todayKey()]; save(); render(); } }
     else if (act==="rmentry"){ removeEntry(id, parseInt(b.getAttribute("data-t"),10)); }
     else if (act==="addfood"){ foodModal(t); }
@@ -572,24 +625,83 @@
     {n:"Honey",s:"1 tbsp",cal:64,p:0,c:17,f:0}
   ];
 
+  function esc(s){ return String(s==null?"":s).replace(/[<>&]/g, function(ch){ return ch==="<"?"&lt;":ch===">"?"&gt;":"&amp;"; }); }
+  function offSearch(term, cb){
+    try {
+      var url = "https://world.openfoodfacts.org/cgi/search.pl?search_terms="+encodeURIComponent(term)+
+        "&search_simple=1&action=process&json=1&page_size=20&fields=product_name,brands,serving_size,nutriments";
+      fetch(url).then(function(r){ return r.json(); }).then(function(d){ cb(null, (d && d.products) || []); }).catch(function(e){ cb(e); });
+    } catch(e) { cb(e); }
+  }
+
   function foodModal(t){
     openSheet(
-      '<h2>Add food</h2><p class="hint">Search a food and pick servings — macros fill in automatically.</p>'+
-      '<label class="field"><span>Search foods</span><input id="food_q" type="text" placeholder="e.g. chicken, rice, banana" autocomplete="off" /></label>'+
+      '<h2>Add food</h2><p class="hint">Search your food — macros fill in automatically. Built-in foods work offline; more results come from the online Open Food Facts database.</p>'+
+      '<label class="field"><span>Search foods</span><input id="food_q" type="text" placeholder="e.g. chicken, oreo, greek yogurt" autocomplete="off" /></label>'+
       '<div id="food_results"></div>'+
+      '<div id="food_online"></div>'+
       '<div id="food_detail"></div>'+
       '<button class="btn-text" id="food_custom" style="width:100%;margin-top:8px">＋ Enter a custom food manually</button>'+
       '<div class="sheet-actions" style="margin-top:12px"><button class="btn-text" data-close="1">Close</button></div>'
     );
-    var q = sheet.querySelector("#food_q"), results = sheet.querySelector("#food_results"), detail = sheet.querySelector("#food_detail");
+    var q = sheet.querySelector("#food_q"), results = sheet.querySelector("#food_results"),
+        online = sheet.querySelector("#food_online"), detail = sheet.querySelector("#food_detail");
     function renderResults(){
       var term = (q.value||"").trim().toLowerCase();
       var list = term ? FOOD_DB.filter(function(x){ return x.n.toLowerCase().indexOf(term)>-1; }).slice(0,24) : FOOD_DB.slice(0,12);
-      results.innerHTML = list.length ? list.map(function(x){
+      results.innerHTML = (term && list.length ? '<div class="off-note">Built-in foods</div>' : '') + (list.length ? list.map(function(x){
         var i = FOOD_DB.indexOf(x);
         return '<div class="row foodrow" data-i="'+i+'" style="cursor:pointer"><span>'+x.n+' <span class="d">'+x.s+' · '+x.cal+' cal · '+x.p+'p '+x.c+'c '+x.f+'f</span></span><span class="n">＋</span></div>';
-      }).join("") : '<div class="row"><span class="empty">No match — add it manually below.</span></div>';
+      }).join("") : (term ? '' : ''));
     }
+    var offTimer, offSeq=0;
+    function triggerOnline(){
+      var term = (q.value||"").trim();
+      clearTimeout(offTimer);
+      if (term.length < 3){ online.innerHTML=""; return; }
+      offTimer = setTimeout(function(){
+        var seq = ++offSeq;
+        online.innerHTML = '<div class="off-note">Searching Open Food Facts…</div>';
+        offSearch(term, function(err, prods){
+          if (seq !== offSeq) return;
+          if (err){ online.innerHTML = '<div class="off-note">Couldn’t reach the online database — built-in foods &amp; manual entry still work.</div>'; return; }
+          var usable = prods.filter(function(pd){ var n=pd.nutriments||{}; return pd.product_name && n["energy-kcal_100g"]!=null; }).slice(0,15);
+          online._prods = usable;
+          if (!usable.length){ online.innerHTML = '<div class="off-note">No online matches for “'+esc(term)+'”.</div>'; return; }
+          online.innerHTML = '<div class="off-note">Online — Open Food Facts (per 100 g)</div>' + usable.map(function(pd,idx){
+            var n = pd.nutriments;
+            return '<div class="row offrow" data-idx="'+idx+'" style="cursor:pointer"><span>'+esc(pd.product_name)+
+              (pd.brands ? ' <span class="d">'+esc(pd.brands.split(",")[0])+'</span>' : '')+
+              ' <span class="d">'+Math.round(n["energy-kcal_100g"])+' cal · '+Math.round(n.proteins_100g||0)+'p '+Math.round(n.carbohydrates_100g||0)+'c '+Math.round(n.fat_100g||0)+'f /100g</span></span><span class="n">＋</span></div>';
+          }).join("");
+        });
+      }, 450);
+    }
+    function openDetailOFF(pd){
+      var n = pd.nutriments||{};
+      var per100 = { cal:n["energy-kcal_100g"]||0, p:n.proteins_100g||0, c:n.carbohydrates_100g||0, f:n.fat_100g||0 };
+      var servG = parseFloat(String(pd.serving_size||"").replace(/[^0-9.]/g,"")); if (isNaN(servG)||servG<=0) servG = 100;
+      var nm = (pd.product_name||"Food") + (pd.brands ? " ("+pd.brands.split(",")[0]+")" : "");
+      detail.innerHTML =
+        '<div class="card" style="margin-top:10px"><div style="font-weight:700;margin-bottom:8px">'+esc(nm)+'</div>'+
+        '<label class="field"><span>Amount (grams)</span><input id="og_g" type="number" inputmode="decimal" value="'+Math.round(servG)+'" step="1" min="0" /></label>'+
+        '<div class="sub" id="og_tot"></div>'+
+        '<div class="sheet-actions" style="margin-top:12px"><button class="btn-text" id="og_back">Back</button>'+
+          '<button class="btn-text btn-primary" id="og_add">Add</button></div></div>';
+      var gi = detail.querySelector("#og_g"), tot = detail.querySelector("#og_tot");
+      function upd(){ var g=parseFloat(gi.value)||0, m=g/100;
+        tot.innerHTML='<b>'+Math.round(per100.cal*m)+'</b> cal · <b>'+Math.round(per100.p*m)+'</b>p · <b>'+Math.round(per100.c*m)+'</b>c · <b>'+Math.round(per100.f*m)+'</b>f'; }
+      gi.oninput=upd; upd();
+      detail.querySelector("#og_back").onclick=function(){ detail.innerHTML=""; };
+      detail.querySelector("#og_add").onclick=function(){
+        var g=parseFloat(gi.value)||0, m=g/100; if(g<=0){ toast("Enter grams."); return; }
+        pushEntry(t.id, todayKey(), { t:Date.now(), name:nm+" ("+Math.round(g)+"g)", cal:per100.cal*m, p:per100.p*m, c:per100.c*m, f:per100.f*m });
+        save(); closeSheet(); render(); toast("Food added.");
+      };
+      detail.scrollIntoView({ block:"nearest" });
+    }
+    online.addEventListener("click", function(e){ var r=e.target.closest(".offrow"); if(!r||!online._prods) return;
+      openDetailOFF(online._prods[parseInt(r.getAttribute("data-idx"),10)]); });
     function openDetail(food){
       detail.innerHTML =
         '<div class="card" style="margin-top:10px"><div style="font-weight:700;margin-bottom:8px">'+food.n+'</div>'+
@@ -612,7 +724,7 @@
     }
     results.addEventListener("click", function(e){ var r=e.target.closest(".foodrow"); if(!r) return;
       openDetail(FOOD_DB[parseInt(r.getAttribute("data-i"),10)]); });
-    q.addEventListener("input", renderResults);
+    q.addEventListener("input", function(){ renderResults(); triggerOnline(); });
     sheet.querySelector("#food_custom").onclick=function(){ customFoodPanel(t, detail); };
     renderResults(); wireClose();
     setTimeout(function(){ q.focus(); }, 50);
@@ -666,6 +778,9 @@
         '<label class="field"><span>Fat goal (g)</span><input id="e_f" type="number" value="'+(t.goalF||"")+'" /></label></div>';
     } else if (t.type==="scalar"){
       g = '<label class="field"><span>Unit</span><input id="e_unit" type="text" value="'+(t.unit||"")+'" /></label>';
+    } else if (t.type==="measure"){
+      g = '<label class="field"><span>Unit</span><input id="e_unit" type="text" value="'+(t.unit||"")+'" /></label>'+
+          '<label class="field"><span>Daily goal (blank = none)</span><input id="e_goal" type="number" value="'+(t.goal!=null?t.goal:"")+'" /></label>';
     } else {
       g = '<label class="field"><span>Unit</span><input id="e_unit" type="text" value="'+(t.unit||"")+'" /></label>'+
           '<label class="field"><span>Amount added per tap</span><input id="e_step" type="number" step="0.5" min="1" value="'+(t.step||1)+'" /></label>'+
@@ -689,6 +804,7 @@
         t.goalCal=num(sheet.querySelector("#e_cal").value); t.goalP=num(sheet.querySelector("#e_p").value);
         t.goalC=num(sheet.querySelector("#e_c").value); t.goalF=num(sheet.querySelector("#e_f").value);
       } else if (t.type==="scalar"){ t.unit=(sheet.querySelector("#e_unit").value||"").trim(); }
+      else if (t.type==="measure"){ t.unit=(sheet.querySelector("#e_unit").value||"").trim(); t.goal=numOrNull(sheet.querySelector("#e_goal").value); }
       else {
         t.unit=(sheet.querySelector("#e_unit").value||"").trim();
         var st = num(sheet.querySelector("#e_step").value); t.step = st>=1 ? st : 1;
@@ -714,12 +830,13 @@
       '<label class="field"><span>Name</span><input id="n_name" type="text" placeholder="e.g. Steps, Vitamins, Beers" /></label>'+
       '<label class="field"><span>Type</span><select id="n_type">'+
         '<option value="counter">Count — tap to add 1 (habits, drinks, pills)</option>'+
+        '<option value="measure">Amount — type &amp; sum an amount each day (water, mL, oz)</option>'+
         '<option value="scalar">Number — log a value each day (weight, mood 1–10)</option>'+
         '<option value="food">Food — calories &amp; macros</option>'+
       '</select></label>'+
       '<label class="field"><span>Unit (optional)</span><input id="n_unit" type="text" placeholder="e.g. cups, mg, steps" /></label>'+
       '<div id="n_goalwrap"><label class="field"><span>Daily goal (optional)</span><input id="n_goal" type="number" placeholder="none" /></label>'+
-      '<label class="field"><span>Goal direction</span><select id="n_dir"><option value="up">Reach at least</option><option value="down">Stay under</option></select></label></div>'+
+      '<div id="n_dirwrap"><label class="field"><span>Goal direction</span><select id="n_dir"><option value="up">Reach at least</option><option value="down">Stay under</option></select></label></div></div>'+
       '<label class="field"><span>Icon</span><div class="emoji-pick" id="n_emoji"></div></label>'+
       '<div class="sheet-actions"><button class="btn-text" data-close="1">Cancel</button>'+
         '<button class="btn-text btn-primary" id="n_save">Add tracker</button></div>'
@@ -729,13 +846,18 @@
     EMOJIS.forEach(function(em){ var b=document.createElement("button"); b.textContent=em; if(em===picked)b.className="sel";
       b.onclick=function(){ picked=em; pick.querySelectorAll("button").forEach(function(x){x.className="";}); b.className="sel"; }; pick.appendChild(b); });
     var typeSel = sheet.querySelector("#n_type");
-    typeSel.onchange = function(){ sheet.querySelector("#n_goalwrap").style.display = typeSel.value==="counter" ? "block":"none"; };
+    typeSel.onchange = function(){
+      var v = typeSel.value;
+      sheet.querySelector("#n_goalwrap").style.display = (v==="counter"||v==="measure") ? "block":"none";
+      sheet.querySelector("#n_dirwrap").style.display = (v==="counter") ? "block":"none";
+    };
     sheet.querySelector("#n_save").onclick = function(){
       var name=(sheet.querySelector("#n_name").value||"").trim(); if(!name){ toast("Give it a name."); return; }
       var type=typeSel.value, id="t"+Date.now();
       var t = { id:id, name:name, emoji:picked, type:type, unit:(sheet.querySelector("#n_unit").value||"").trim() };
       if (type==="counter"){ t.goal=numOrNull(sheet.querySelector("#n_goal").value); t.goalDir=sheet.querySelector("#n_dir").value; }
-      if (type==="food"){ t.goalCal=2000; t.goalP=150; t.goalC=200; t.goalF=65; }
+      if (type==="measure"){ t.goal=numOrNull(sheet.querySelector("#n_goal").value); t.quick=[]; }
+      if (type==="food"){ t.goalCal=2000; t.goalP=200; t.goalC=165; t.goalF=60; }
       state.trackers.push(t); save(); closeSheet(); render(); toast(name+" added.");
     };
     wireClose();
