@@ -5,9 +5,9 @@ A simple, private daily tracker for the things you want to keep an eye on — ni
 ## What it tracks
 
 - **Zyn** — one-tap pouch logging with a nicotine (and optional cost) tally and a **quit forecast** that projects your zero date from your trend.
-- **Water** — tap to add a glass toward a daily goal.
+- **Water** — tap to add a serving (default 16 oz) toward a bodyweight-based daily goal in ounces.
 - **Coffee** — tap to count cups against a daily limit.
-- **Food** — log entries with **calories and macros** (protein / carbs / fat); see daily totals vs. goals.
+- **Food** — search a built-in library of ~120 common foods and pick servings; **calories and macros (protein / carbs / fat) fill in automatically**. Manual entry is available for anything not listed. See daily totals vs. goals.
 - **Weight** — log a daily weigh-in and watch the trend.
 - **Custom trackers** — add your own (steps, vitamins, workouts, mood…) as a tap-counter, a daily number, or a food-style tracker, each with its own icon and goal.
 

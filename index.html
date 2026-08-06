@@ -163,7 +163,7 @@
   function defaultTrackers(){
     return [
       { id:"zyn",    name:"Zyn",    emoji:"🚭", type:"counter", unit:"pouches", goalDir:"down", goal:null, nicotine:true, forecast:true, mgPerPouch:3, pricePerPouch:0 },
-      { id:"water",  name:"Water",  emoji:"💧", type:"counter", unit:"glasses", goalDir:"up",   goal:8 },
+      { id:"water",  name:"Water",  emoji:"💧", type:"counter", unit:"oz", step:16, goalDir:"up", goal:128 },
       { id:"coffee", name:"Coffee", emoji:"☕", type:"counter", unit:"cups",    goalDir:"down", goal:3 },
       { id:"food",   name:"Food",   emoji:"🍽️", type:"food",    goalCal:2000, goalP:200, goalC:165, goalF:60 },
       { id:"weight", name:"Weight", emoji:"⚖️", type:"scalar",  unit:"lb" }
@@ -187,6 +187,14 @@
             if (isOrig || isInterim) { ft.goalP=200; ft.goalC=165; ft.goalF=60; }
           }
           s.macroPreset2 = true;
+        }
+        // one-time: move Water from glasses to ounces with a bodyweight-based goal, if untouched
+        if (!s.waterOz1) {
+          var wt = s.trackers.filter(function(t){ return t.id==="water"; })[0];
+          if (wt && wt.unit==="glasses" && wt.goal===8 && !wt.step) {
+            wt.unit="oz"; wt.step=16; wt.goal=128;
+          }
+          s.waterOz1 = true;
         }
         return s;
       }
@@ -309,18 +317,19 @@
   }
 
   function counterCard(t){
-    var k = todayKey(), c = dayCount(t.id, k);
+    var k = todayKey(), c = dayCount(t.id, k), step = t.step||1, val = c*step;
     var node = el('<div class="card" data-id="'+t.id+'"></div>');
-    var goalTxt = "", bar = "", extra = "";
+    var goalTxt = "", bar = "";
+    var stepHint = step>1 ? ' · +'+step+' '+(t.unit||"")+' per tap' : '';
     if (t.goalDir==="up" && t.goal){
-      goalTxt = '<div class="goal"><b>'+c+'</b> / '+t.goal+' '+(t.unit||"")+(c>=t.goal?' ✓':'')+'</div>';
-      bar = progressBar(c/t.goal, false);
+      goalTxt = '<div class="goal"><b>'+val+'</b> / '+t.goal+' '+(t.unit||"")+(val>=t.goal?' ✓':'')+stepHint+'</div>';
+      bar = progressBar(val/t.goal, false);
     } else if (t.goalDir==="down" && t.goal!=null){
-      var left = t.goal - c;
-      goalTxt = '<div class="goal">'+(c>t.goal ? '<b style="color:var(--danger)">'+(c-t.goal)+' over</b> your limit of '+t.goal : '<b>'+Math.max(0,left)+'</b> left under your limit of '+t.goal)+'</div>';
-      bar = progressBar(t.goal? c/t.goal : 0, c>t.goal);
+      var left = t.goal - val;
+      goalTxt = '<div class="goal">'+(val>t.goal ? '<b style="color:var(--danger)">'+(val-t.goal)+' over</b> your limit of '+t.goal : '<b>'+Math.max(0,left)+'</b> left under your limit of '+t.goal)+stepHint+'</div>';
+      bar = progressBar(t.goal? val/t.goal : 0, val>t.goal);
     } else {
-      goalTxt = ''; // no goal set — the big number already shows the unit
+      goalTxt = step>1 ? '<div class="goal">'+(step+' '+(t.unit||"")+' per tap')+'</div>' : '';
     }
 
     var sub = "";
@@ -334,11 +343,11 @@
     node.innerHTML =
       '<div class="chead"><span class="emoji">'+t.emoji+'</span><span class="name">'+t.name+'</span>'+
         '<button class="gear" data-act="edit" data-id="'+t.id+'">⚙︎</button></div>'+
-      '<div class="mainrow"><div><div class="big">'+c+'<span class="u">'+(t.unit||"")+'</span></div>'+goalTxt+'</div>'+
+      '<div class="mainrow"><div><div class="big">'+val+'<span class="u">'+(t.unit||"")+'</span></div>'+goalTxt+'</div>'+
         '<div class="actions"><button class="mini" data-act="undo" data-id="'+t.id+'"'+(c===0?' disabled':'')+'>−</button>'+
         '<button class="add" data-act="inc" data-id="'+t.id+'">+</button></div></div>'+
       bar + sub +
-      sparkHTML(t.id, dayCount, t.goal, t.goalDir) +
+      sparkHTML(t.id, function(id,kk){ return dayCount(id,kk)*step; }, t.goal, t.goalDir) +
       expandCounter(t);
     return node;
   }
@@ -454,28 +463,180 @@
   function num(v){ v=parseFloat(v); return isNaN(v)?0:v; }
   function numOrNull(v){ v=parseFloat(v); return isNaN(v)?null:v; }
 
+  // Built-in food library — per common serving: {n:name, s:serving, cal, p, c, f}
+  var FOOD_DB = [
+    {n:"Chicken breast",s:"4 oz cooked",cal:187,p:35,c:0,f:4},
+    {n:"Chicken thigh",s:"4 oz cooked",cal:235,p:28,c:0,f:13},
+    {n:"Ground beef 90/10",s:"4 oz cooked",cal:200,p:23,c:0,f:11},
+    {n:"Ground beef 80/20",s:"4 oz cooked",cal:287,p:19,c:0,f:23},
+    {n:"Ribeye steak",s:"6 oz",cal:480,p:44,c:0,f:33},
+    {n:"Sirloin steak",s:"6 oz",cal:360,p:46,c:0,f:18},
+    {n:"Pork chop",s:"4 oz",cal:210,p:26,c:0,f:11},
+    {n:"Pork tenderloin",s:"4 oz",cal:160,p:26,c:0,f:5},
+    {n:"Bacon",s:"2 slices",cal:87,p:6,c:0,f:7},
+    {n:"Ham",s:"3 oz",cal:120,p:16,c:2,f:5},
+    {n:"Sausage link",s:"1 link",cal:85,p:5,c:1,f:7},
+    {n:"Salmon",s:"4 oz",cal:233,p:25,c:0,f:14},
+    {n:"Tuna (canned in water)",s:"1 can (5 oz)",cal:120,p:26,c:0,f:1},
+    {n:"Shrimp",s:"4 oz",cal:112,p:24,c:0,f:1},
+    {n:"Tilapia",s:"4 oz",cal:145,p:30,c:0,f:3},
+    {n:"Cod",s:"4 oz",cal:90,p:20,c:0,f:1},
+    {n:"Turkey breast (deli)",s:"3 oz",cal:90,p:17,c:2,f:1},
+    {n:"Ground turkey 93/7",s:"4 oz",cal:170,p:22,c:0,f:9},
+    {n:"Egg",s:"1 large",cal:72,p:6,c:0,f:5},
+    {n:"Egg whites",s:"1 cup",cal:126,p:26,c:2,f:0},
+    {n:"Whey protein",s:"1 scoop",cal:120,p:24,c:3,f:2},
+    {n:"Greek yogurt (nonfat)",s:"1 cup",cal:130,p:23,c:9,f:0},
+    {n:"Greek yogurt (whole)",s:"1 cup",cal:220,p:20,c:9,f:11},
+    {n:"Cottage cheese",s:"1 cup",cal:180,p:25,c:7,f:5},
+    {n:"Tofu (firm)",s:"4 oz",cal:90,p:10,c:2,f:5},
+    {n:"Black beans",s:"1 cup",cal:227,p:15,c:41,f:1},
+    {n:"Lentils",s:"1 cup cooked",cal:230,p:18,c:40,f:1},
+    {n:"Chickpeas",s:"1 cup",cal:269,p:15,c:45,f:4},
+    {n:"Milk 2%",s:"1 cup",cal:122,p:8,c:12,f:5},
+    {n:"Milk skim",s:"1 cup",cal:83,p:8,c:12,f:0},
+    {n:"Whole milk",s:"1 cup",cal:149,p:8,c:12,f:8},
+    {n:"Cheddar cheese",s:"1 oz",cal:113,p:7,c:0,f:9},
+    {n:"Mozzarella",s:"1 oz",cal:85,p:6,c:1,f:6},
+    {n:"String cheese",s:"1 stick",cal:80,p:7,c:1,f:6},
+    {n:"Butter",s:"1 tbsp",cal:102,p:0,c:0,f:12},
+    {n:"White rice",s:"1 cup cooked",cal:205,p:4,c:45,f:0},
+    {n:"Brown rice",s:"1 cup cooked",cal:218,p:5,c:46,f:2},
+    {n:"Pasta",s:"1 cup cooked",cal:220,p:8,c:43,f:1},
+    {n:"White bread",s:"1 slice",cal:75,p:2,c:14,f:1},
+    {n:"Whole wheat bread",s:"1 slice",cal:80,p:4,c:14,f:1},
+    {n:"Bagel",s:"1 medium",cal:250,p:10,c:49,f:2},
+    {n:"Oatmeal",s:"1/2 cup dry",cal:150,p:5,c:27,f:3},
+    {n:"Quinoa",s:"1 cup cooked",cal:222,p:8,c:39,f:4},
+    {n:"Baked potato",s:"1 medium",cal:161,p:4,c:37,f:0},
+    {n:"Sweet potato",s:"1 medium",cal:112,p:2,c:26,f:0},
+    {n:"Flour tortilla",s:"1 medium",cal:140,p:4,c:24,f:4},
+    {n:"Corn tortilla",s:"1",cal:60,p:1,c:12,f:1},
+    {n:"Cereal",s:"1 cup",cal:120,p:3,c:27,f:1},
+    {n:"Pancake",s:"1",cal:90,p:2,c:15,f:3},
+    {n:"French fries",s:"medium",cal:365,p:4,c:48,f:17},
+    {n:"Crackers",s:"5",cal:80,p:1,c:10,f:4},
+    {n:"Pita bread",s:"1",cal:165,p:5,c:33,f:1},
+    {n:"Banana",s:"1 medium",cal:105,p:1,c:27,f:0},
+    {n:"Apple",s:"1 medium",cal:95,p:0,c:25,f:0},
+    {n:"Orange",s:"1",cal:62,p:1,c:15,f:0},
+    {n:"Strawberries",s:"1 cup",cal:49,p:1,c:12,f:0},
+    {n:"Blueberries",s:"1 cup",cal:84,p:1,c:21,f:0},
+    {n:"Grapes",s:"1 cup",cal:104,p:1,c:27,f:0},
+    {n:"Avocado",s:"1/2",cal:120,p:1,c:6,f:11},
+    {n:"Watermelon",s:"1 cup",cal:46,p:1,c:12,f:0},
+    {n:"Pineapple",s:"1 cup",cal:82,p:1,c:22,f:0},
+    {n:"Mango",s:"1 cup",cal:99,p:1,c:25,f:0},
+    {n:"Broccoli",s:"1 cup",cal:55,p:4,c:11,f:1},
+    {n:"Spinach (raw)",s:"1 cup",cal:7,p:1,c:1,f:0},
+    {n:"Salad greens",s:"2 cups",cal:15,p:1,c:3,f:0},
+    {n:"Carrots",s:"1 cup",cal:52,p:1,c:12,f:0},
+    {n:"Green beans",s:"1 cup",cal:35,p:2,c:8,f:0},
+    {n:"Bell pepper",s:"1",cal:30,p:1,c:7,f:0},
+    {n:"Tomato",s:"1",cal:22,p:1,c:5,f:0},
+    {n:"Corn",s:"1 cup",cal:132,p:5,c:29,f:2},
+    {n:"Peas",s:"1 cup",cal:118,p:8,c:21,f:1},
+    {n:"Mushrooms",s:"1 cup",cal:15,p:2,c:2,f:0},
+    {n:"Peanut butter",s:"2 tbsp",cal:190,p:7,c:7,f:16},
+    {n:"Almond butter",s:"2 tbsp",cal:196,p:7,c:6,f:18},
+    {n:"Almonds",s:"1 oz (23)",cal:164,p:6,c:6,f:14},
+    {n:"Walnuts",s:"1 oz",cal:185,p:4,c:4,f:18},
+    {n:"Cashews",s:"1 oz",cal:157,p:5,c:9,f:12},
+    {n:"Peanuts",s:"1 oz",cal:161,p:7,c:5,f:14},
+    {n:"Olive oil",s:"1 tbsp",cal:119,p:0,c:0,f:14},
+    {n:"Chia seeds",s:"1 tbsp",cal:60,p:2,c:5,f:4},
+    {n:"Cheeseburger (fast food)",s:"1",cal:300,p:15,c:33,f:13},
+    {n:"Big Mac",s:"1",cal:563,p:26,c:45,f:33},
+    {n:"Chicken nuggets",s:"6",cal:250,p:13,c:15,f:15},
+    {n:"Pizza (cheese)",s:"1 slice",cal:285,p:12,c:36,f:10},
+    {n:"Bean & cheese burrito",s:"1",cal:380,p:15,c:50,f:12},
+    {n:"Sub sandwich",s:'6"',cal:400,p:20,c:45,f:15},
+    {n:"Chicken Caesar salad",s:"1",cal:470,p:30,c:10,f:32},
+    {n:"Grilled chicken salad",s:"1",cal:320,p:30,c:12,f:16},
+    {n:"Hot dog",s:"1",cal:290,p:10,c:23,f:17},
+    {n:"Ramen (pack)",s:"1",cal:380,p:8,c:52,f:14},
+    {n:"Mac & cheese",s:"1 cup",cal:310,p:11,c:40,f:12},
+    {n:"Orange juice",s:"1 cup",cal:112,p:2,c:26,f:0},
+    {n:"Soda",s:"12 oz",cal:140,p:0,c:39,f:0},
+    {n:"Beer",s:"12 oz",cal:153,p:2,c:13,f:0},
+    {n:"Wine",s:"5 oz",cal:125,p:0,c:4,f:0},
+    {n:"Latte",s:"12 oz",cal:190,p:12,c:19,f:7},
+    {n:"Protein bar",s:"1",cal:200,p:20,c:22,f:7},
+    {n:"Granola bar",s:"1",cal:120,p:2,c:20,f:4},
+    {n:"Potato chips",s:"1 oz",cal:152,p:2,c:15,f:10},
+    {n:"Dark chocolate",s:"1 oz",cal:155,p:2,c:13,f:9},
+    {n:"Ice cream",s:"1/2 cup",cal:137,p:2,c:16,f:7},
+    {n:"Popcorn",s:"3 cups",cal:93,p:3,c:19,f:1},
+    {n:"Trail mix",s:"1/4 cup",cal:175,p:5,c:16,f:11},
+    {n:"Hummus",s:"2 tbsp",cal:70,p:2,c:6,f:5},
+    {n:"Honey",s:"1 tbsp",cal:64,p:0,c:17,f:0}
+  ];
+
   function foodModal(t){
     openSheet(
-      '<h2>Add food</h2><p class="hint">Enter what you can — calories and macros all optional.</p>'+
-      '<label class="field"><span>Name (optional)</span><input id="f_name" type="text" placeholder="e.g. Chicken &amp; rice" /></label>'+
-      '<label class="field"><span>Calories</span><input id="f_cal" type="number" inputmode="numeric" placeholder="0" /></label>'+
-      '<div class="grid2">'+
-        '<label class="field"><span>Protein (g)</span><input id="f_p" type="number" inputmode="decimal" placeholder="0" /></label>'+
-        '<label class="field"><span>Carbs (g)</span><input id="f_c" type="number" inputmode="decimal" placeholder="0" /></label>'+
-      '</div>'+
-      '<label class="field"><span>Fat (g)</span><input id="f_f" type="number" inputmode="decimal" placeholder="0" /></label>'+
-      '<div class="sheet-actions"><button class="btn-text" data-close="1">Cancel</button>'+
-        '<button class="btn-text btn-primary" id="f_save">Add</button></div>'
+      '<h2>Add food</h2><p class="hint">Search a food and pick servings — macros fill in automatically.</p>'+
+      '<label class="field"><span>Search foods</span><input id="food_q" type="text" placeholder="e.g. chicken, rice, banana" autocomplete="off" /></label>'+
+      '<div id="food_results"></div>'+
+      '<div id="food_detail"></div>'+
+      '<button class="btn-text" id="food_custom" style="width:100%;margin-top:8px">＋ Enter a custom food manually</button>'+
+      '<div class="sheet-actions" style="margin-top:12px"><button class="btn-text" data-close="1">Close</button></div>'
     );
-    sheet.querySelector("#f_save").onclick = function(){
-      var e = { t:Date.now(), name:(sheet.querySelector("#f_name").value||"").trim(),
-        cal:num(sheet.querySelector("#f_cal").value), p:num(sheet.querySelector("#f_p").value),
-        c:num(sheet.querySelector("#f_c").value), f:num(sheet.querySelector("#f_f").value) };
-      if (!e.cal && !e.p && !e.c && !e.f && !e.name){ toast("Enter something first."); return; }
+    var q = sheet.querySelector("#food_q"), results = sheet.querySelector("#food_results"), detail = sheet.querySelector("#food_detail");
+    function renderResults(){
+      var term = (q.value||"").trim().toLowerCase();
+      var list = term ? FOOD_DB.filter(function(x){ return x.n.toLowerCase().indexOf(term)>-1; }).slice(0,24) : FOOD_DB.slice(0,12);
+      results.innerHTML = list.length ? list.map(function(x){
+        var i = FOOD_DB.indexOf(x);
+        return '<div class="row foodrow" data-i="'+i+'" style="cursor:pointer"><span>'+x.n+' <span class="d">'+x.s+' · '+x.cal+' cal · '+x.p+'p '+x.c+'c '+x.f+'f</span></span><span class="n">＋</span></div>';
+      }).join("") : '<div class="row"><span class="empty">No match — add it manually below.</span></div>';
+    }
+    function openDetail(food){
+      detail.innerHTML =
+        '<div class="card" style="margin-top:10px"><div style="font-weight:700;margin-bottom:8px">'+food.n+'</div>'+
+        '<label class="field"><span>Servings ('+food.s+')</span><input id="fd_qty" type="number" inputmode="decimal" value="1" step="0.5" min="0" /></label>'+
+        '<div class="sub" id="fd_tot"></div>'+
+        '<div class="sheet-actions" style="margin-top:12px"><button class="btn-text" id="fd_back">Back</button>'+
+          '<button class="btn-text btn-primary" id="fd_add">Add</button></div></div>';
+      var qty = detail.querySelector("#fd_qty"), tot = detail.querySelector("#fd_tot");
+      function upd(){ var m=parseFloat(qty.value)||0;
+        tot.innerHTML='<b>'+Math.round(food.cal*m)+'</b> cal · <b>'+Math.round(food.p*m)+'</b>p · <b>'+Math.round(food.c*m)+'</b>c · <b>'+Math.round(food.f*m)+'</b>f'; }
+      qty.oninput=upd; upd();
+      detail.querySelector("#fd_back").onclick=function(){ detail.innerHTML=""; };
+      detail.querySelector("#fd_add").onclick=function(){
+        var m=parseFloat(qty.value)||0; if(m<=0){ toast("Set servings first."); return; }
+        pushEntry(t.id, todayKey(), { t:Date.now(), name:food.n+(m!==1?" ×"+(Math.round(m*10)/10):""),
+          cal:food.cal*m, p:food.p*m, c:food.c*m, f:food.f*m });
+        save(); closeSheet(); render(); toast("Food added.");
+      };
+      detail.scrollIntoView({ block:"nearest" });
+    }
+    results.addEventListener("click", function(e){ var r=e.target.closest(".foodrow"); if(!r) return;
+      openDetail(FOOD_DB[parseInt(r.getAttribute("data-i"),10)]); });
+    q.addEventListener("input", renderResults);
+    sheet.querySelector("#food_custom").onclick=function(){ customFoodPanel(t, detail); };
+    renderResults(); wireClose();
+    setTimeout(function(){ q.focus(); }, 50);
+  }
+
+  function customFoodPanel(t, detail){
+    detail.innerHTML =
+      '<div class="card" style="margin-top:10px">'+
+      '<label class="field"><span>Name</span><input id="cf_name" type="text" placeholder="Food name" /></label>'+
+      '<label class="field"><span>Calories</span><input id="cf_cal" type="number" inputmode="numeric" placeholder="0" /></label>'+
+      '<div class="grid2"><label class="field"><span>Protein (g)</span><input id="cf_p" type="number" placeholder="0" /></label>'+
+      '<label class="field"><span>Carbs (g)</span><input id="cf_c" type="number" placeholder="0" /></label></div>'+
+      '<label class="field"><span>Fat (g)</span><input id="cf_f" type="number" placeholder="0" /></label>'+
+      '<div class="sheet-actions"><button class="btn-text" id="cf_back">Back</button>'+
+        '<button class="btn-text btn-primary" id="cf_add">Add</button></div></div>';
+    detail.querySelector("#cf_back").onclick=function(){ detail.innerHTML=""; };
+    detail.querySelector("#cf_add").onclick=function(){
+      var e={ t:Date.now(), name:(detail.querySelector("#cf_name").value||"").trim()||"Food",
+        cal:num(detail.querySelector("#cf_cal").value), p:num(detail.querySelector("#cf_p").value),
+        c:num(detail.querySelector("#cf_c").value), f:num(detail.querySelector("#cf_f").value) };
+      if(!e.cal&&!e.p&&!e.c&&!e.f){ toast("Enter something first."); return; }
       pushEntry(t.id, todayKey(), e); save(); closeSheet(); render(); toast("Food added.");
     };
-    wireClose();
-    setTimeout(function(){ sheet.querySelector("#f_name").focus(); }, 50);
+    detail.scrollIntoView({ block:"nearest" });
   }
 
   function scalarModal(t){
@@ -507,6 +668,7 @@
       g = '<label class="field"><span>Unit</span><input id="e_unit" type="text" value="'+(t.unit||"")+'" /></label>';
     } else {
       g = '<label class="field"><span>Unit</span><input id="e_unit" type="text" value="'+(t.unit||"")+'" /></label>'+
+          '<label class="field"><span>Amount added per tap</span><input id="e_step" type="number" step="0.5" min="1" value="'+(t.step||1)+'" /></label>'+
           '<label class="field"><span>Daily goal ('+(t.goalDir==="down"?"limit to stay under":"target to reach")+', blank = none)</span><input id="e_goal" type="number" value="'+(t.goal!=null?t.goal:"")+'" /></label>'+
           '<label class="field"><span>Goal direction</span><select id="e_dir"><option value="up"'+(t.goalDir==="up"?" selected":"")+'>Reach at least (e.g. water)</option><option value="down"'+(t.goalDir==="down"?" selected":"")+'>Stay under (e.g. coffee)</option></select></label>';
       if (t.nicotine){
@@ -529,6 +691,7 @@
       } else if (t.type==="scalar"){ t.unit=(sheet.querySelector("#e_unit").value||"").trim(); }
       else {
         t.unit=(sheet.querySelector("#e_unit").value||"").trim();
+        var st = num(sheet.querySelector("#e_step").value); t.step = st>=1 ? st : 1;
         t.goal = numOrNull(sheet.querySelector("#e_goal").value);
         t.goalDir = sheet.querySelector("#e_dir").value;
         if (t.nicotine){ t.mgPerPouch=num(sheet.querySelector("#e_mg").value); t.pricePerPouch=num(sheet.querySelector("#e_price").value); }
