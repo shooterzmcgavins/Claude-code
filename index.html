@@ -165,7 +165,7 @@
       { id:"zyn",    name:"Zyn",    emoji:"🚭", type:"counter", unit:"pouches", goalDir:"down", goal:null, nicotine:true, forecast:true, mgPerPouch:3, pricePerPouch:0 },
       { id:"water",  name:"Water",  emoji:"💧", type:"counter", unit:"glasses", goalDir:"up",   goal:8 },
       { id:"coffee", name:"Coffee", emoji:"☕", type:"counter", unit:"cups",    goalDir:"down", goal:3 },
-      { id:"food",   name:"Food",   emoji:"🍽️", type:"food",    goalCal:2000, goalP:180, goalC:185, goalF:60 },
+      { id:"food",   name:"Food",   emoji:"🍽️", type:"food",    goalCal:2000, goalP:200, goalC:165, goalF:60 },
       { id:"weight", name:"Weight", emoji:"⚖️", type:"scalar",  unit:"lb" }
     ];
   }
@@ -177,13 +177,16 @@
       var raw = localStorage.getItem(STORE);
       if (raw) {
         var s = JSON.parse(raw); s.trackers = s.trackers || defaultTrackers(); s.data = s.data || {};
-        // one-time: apply calculated macro goals if Food is still on the original defaults (untouched by the user)
-        if (!s.macroPreset1) {
+        // one-time: apply the evidence-based macro goals if Food still holds an app-set preset
+        // (original 150/200/65 or interim 180/185/60) — never overwrite user-customized goals.
+        if (!s.macroPreset2) {
           var ft = s.trackers.filter(function(t){ return t.id==="food"; })[0];
-          if (ft && ft.goalCal===2000 && ft.goalP===150 && ft.goalC===200 && ft.goalF===65) {
-            ft.goalP=180; ft.goalC=185; ft.goalF=60;
+          if (ft && ft.goalCal===2000) {
+            var isOrig    = ft.goalP===150 && ft.goalC===200 && ft.goalF===65;
+            var isInterim = ft.goalP===180 && ft.goalC===185 && ft.goalF===60;
+            if (isOrig || isInterim) { ft.goalP=200; ft.goalC=165; ft.goalF=60; }
           }
-          s.macroPreset1 = true;
+          s.macroPreset2 = true;
         }
         return s;
       }
