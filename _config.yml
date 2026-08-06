@@ -1,0 +1,8 @@
+# Jekyll configuration for GitHub Pages
+title: Daily Tracker
+description: MyFitnessPal-style daily food, macro, and water tracker
+# No theme: serve index.html exactly as authored (front matter has layout:null)
+theme: null
+# Keep source files out of the built site
+exclude:
+  - README.md
