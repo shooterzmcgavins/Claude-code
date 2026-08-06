@@ -181,6 +181,7 @@ layout: null
       { id:"food",   name:"Food",   emoji:"🍽️", type:"food", goalCal:2000, goalP:200, goalC:165, goalF:60 },
       { id:"zyn",    name:"Zyn",    emoji:"🚭", type:"counter", unit:"pouches", goalDir:"down", goal:null, nicotine:true, forecast:true, mgPerPouch:3, pricePerPouch:0 },
       { id:"water",  name:"Water",  emoji:"💧", type:"measure", unit:"oz", goal:128, quick:[8,12,16,20,24], beerOffset:true },
+      { id:"drinks", name:"Drinks", emoji:"🍻", type:"drinks", limit:3 },
       { id:"coffee", name:"Coffee", emoji:"☕", type:"counter", unit:"cups", goalDir:"down", goal:3 },
       { id:"weight", name:"Weight", emoji:"⚖️", type:"scalar", unit:"lb" }
     ];
@@ -215,6 +216,14 @@ layout: null
           var wtb = s.trackers.filter(function(t){ return t.id==="water"; })[0];
           if (wtb && wtb.type==="measure") wtb.beerOffset = true;
           s.beerOffset1 = true;
+        }
+        if (!s.drinksTracker1) {
+          if (!s.trackers.some(function(t){ return t.id==="drinks"; })) {
+            var wi = s.trackers.map(function(t){ return t.id; }).indexOf("water");
+            var dt = { id:"drinks", name:"Drinks", emoji:"🍻", type:"drinks", limit:3 };
+            if (wi>-1) s.trackers.splice(wi+1,0,dt); else s.trackers.push(dt);
+          }
+          s.drinksTracker1 = true;
         }
         // ensure Food is first for the MFP-style dashboard layout
         s.trackers.sort(function(a,b){ return (a.id==="food"?-1:0) - (b.id==="food"?-1:0); });
@@ -301,6 +310,7 @@ layout: null
     if(t.type==="food") return foodCard(t);
     if(t.type==="scalar") return scalarCard(t);
     if(t.type==="measure") return measureCard(t);
+    if(t.type==="drinks") return drinksCard(t);
     return counterCard(t);
   }
   function chead(t){
@@ -383,17 +393,24 @@ layout: null
   // extra water (oz) = volOz * 29.5735 * (abv/100) * 0.789 (g alcohol) * 10 (mL) / 29.5735 (mL/oz)
   //                  = volOz * abv * 0.0789
   function beerOffsetOz(vol, abv){ return (vol||0) * (abv||0) * 0.0789; }
+  function alcoholG(vol, abv){ return (vol||0) * 29.5735 * ((abv||0)/100) * 0.789; }
+  function drinkEmoji(kind){ var s=(kind||"").toLowerCase();
+    if(/wine|ros|champagne|prosecco|sangria/.test(s)) return "🍷";
+    if(/beer|ipa|lager|ale|pilsner|stout|porter/.test(s)) return "🍺";
+    if(/seltzer|claw|cider/.test(s)) return "🥫";
+    if(/vodka|whiskey|whisky|rum|tequila|gin|shot|liquor|bourbon|scotch|cocktail|margarita|martini|mixed/.test(s)) return "🥃";
+    return "🍸"; }
   var BEER_PRESETS = [
-    { emoji:"🍺", label:"Beer 12·5%",   vol:12,  abv:5 },
-    { emoji:"🍺", label:"Light 12·4%",  vol:12,  abv:4 },
-    { emoji:"🍺", label:"IPA 12·7%",    vol:12,  abv:7 },
-    { emoji:"🍺", label:"Tallboy 16·8%",vol:16,  abv:8 },
-    { emoji:"🍷", label:"Wine 5·12%",   vol:5,   abv:12 },
-    { emoji:"🥃", label:"Shot 1.5·40%", vol:1.5, abv:40 }
+    { emoji:"🍺", kind:"Beer",    label:"Beer 12·5%",   vol:12,  abv:5 },
+    { emoji:"🍺", kind:"Light",   label:"Light 12·4%",  vol:12,  abv:4 },
+    { emoji:"🍺", kind:"IPA",     label:"IPA 12·7%",    vol:12,  abv:7 },
+    { emoji:"🍺", kind:"Tallboy", label:"Tallboy 16·8%",vol:16,  abv:8 },
+    { emoji:"🍷", kind:"Wine",    label:"Wine 5·12%",   vol:5,   abv:12 },
+    { emoji:"🥃", kind:"Shot",    label:"Shot 1.5·40%", vol:1.5, abv:40 }
   ];
   function beerBlock(t, n, off){
     var chips=BEER_PRESETS.map(function(b){
-      return '<button class="chip beer" data-act="beeradd" data-id="'+t.id+'" data-vol="'+b.vol+'" data-abv="'+b.abv+'">'+b.emoji+' '+b.label+'</button>';
+      return '<button class="chip beer" data-act="beeradd" data-id="'+t.id+'" data-vol="'+b.vol+'" data-abv="'+b.abv+'" data-kind="'+b.kind+'" data-emoji="'+b.emoji+'">'+b.emoji+' '+b.label+'</button>';
     }).join("");
     var status = n>0
       ? '<div class="sub">🍺 <b>'+n+'</b> drink'+(n>1?'s':'')+' today <span class="dot">·</span> <b style="color:#B4740E">+'+off+' '+(t.unit||"oz")+'</b> added to your goal <button class="rm" data-act="beerundo" data-id="'+t.id+'" style="color:#B4740E">undo</button></div>'
@@ -444,6 +461,47 @@ layout: null
     var days=""; for(var i=0;i<7;i++){ var kk=keyMinus(i),s=Math.round(daySum(t.id,kk)*10)/10,dd=new Date(kk+"T00:00:00");
       days+='<div class="row'+(i===0?' today':'')+'"><span class="t">'+(i===0?"Today":(i===1?"Yesterday":dd.toLocaleDateString([],{weekday:"short",month:"numeric",day:"numeric"})))+'</span><span class="n">'+s+' '+(t.unit||"")+'</span></div>'; }
     return '<details class="exp"><summary>Today’s entries &amp; last 7 days</summary>'+list+beerHTML+'<div class="goal" style="margin:10px 0 4px">Last 7 days</div>'+days+'</details>';
+  }
+
+  /* ---------- drinks (alcohol counter) ---------- */
+  function drinksCard(t){
+    var k=todayKey(), arr=entriesOn("waterBeer",k);
+    var node=el('<div class="card" data-id="'+t.id+'"></div>');
+    var count=arr.length;
+    var totG=arr.reduce(function(a,e){ return a+alcoholG(e.vol,e.abv); },0);
+    var std=totG/14;
+    var totOff=Math.round(arr.reduce(function(a,e){ return a+(e.off||0); },0));
+    var limit=(t.limit!=null?t.limit:null);
+    var over=limit!=null && count>limit;
+    var ringHTML=ring(limit?count/limit:0,{size:64,color:over?RED:BLUE,center:'<div class="mr-v">'+count+'</div>'});
+    var goalTxt=limit!=null
+      ? '<div class="goal">'+(over?'<b style="color:'+RED+'">'+(count-limit)+' over</b> · limit '+limit:'<b>'+Math.max(0,limit-count)+'</b> left · limit '+limit+' drinks')+'</div>'
+      : '<div class="big">'+count+'<span class="u">drinks</span></div>';
+    var sub=count?'<div class="sub">≈ <b>'+(Math.round(std*10)/10)+'</b> standard drinks <span class="dot">·</span> <b>'+Math.round(totG)+' g</b> alcohol <span class="dot">·</span> <b style="color:#B4740E">+'+totOff+' oz</b> water</div>'
+      :'<div class="sub" style="color:var(--muted)">Nothing yet today. A “standard drink” = 14 g alcohol (a 12 oz 5% beer, 5 oz wine, or 1 shot).</div>';
+    var groups={}, order=[];
+    arr.forEach(function(e){ var kind=e.kind||"Drink"; if(!groups[kind]){ groups[kind]={n:0,emoji:e.emoji||drinkEmoji(kind)}; order.push(kind); } groups[kind].n++; });
+    var breakdown=order.length?'<div class="madd" style="margin-top:10px">'+order.map(function(kind){ var g=groups[kind]; return '<span class="chip beer" style="pointer-events:none">'+g.emoji+' '+esc(kind)+' ×'+g.n+'</span>'; }).join("")+'</div>':'';
+    var chips=BEER_PRESETS.map(function(b){ return '<button class="chip beer" data-act="beeradd" data-id="'+t.id+'" data-vol="'+b.vol+'" data-abv="'+b.abv+'" data-kind="'+b.kind+'" data-emoji="'+b.emoji+'">'+b.emoji+' '+b.label+'</button>'; }).join("");
+    node.innerHTML = chead(t) +
+      '<div class="mainrow"><div class="ringwrap">'+ringHTML+'</div>'+
+        '<div class="mrow-mid">'+goalTxt+'</div>'+
+        '<div class="actions"><button class="mini" data-act="beerundo" data-id="'+t.id+'"'+(count?'':' disabled')+'>−</button></div></div>'+
+      sub + breakdown +
+      '<div class="off-note" style="margin-top:14px">＋ Log a drink</div>'+
+      '<div class="madd">'+chips+'<button class="chip beer" data-act="beercustom" data-id="'+t.id+'">Custom…</button></div>'+
+      drinksExpand(t);
+    return node;
+  }
+  function drinksExpand(t){
+    var arr=entriesOn("waterBeer",todayKey()).slice().reverse();
+    var list=arr.length?arr.map(function(e){
+      return '<div class="row"><span>'+(e.emoji||"🍺")+' '+esc(e.kind||"Drink")+' <span class="d">'+(Math.round((e.vol||0)*10)/10)+' oz · '+(e.abv||0)+'% · +'+Math.round(e.off||0)+' oz water · '+new Date(e.t).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})+'</span></span>'+
+        '<button class="rm" data-act="beerrm" data-id="'+t.id+'" data-t="'+e.t+'">Remove</button></div>';
+    }).join(""):'<div class="row"><span class="empty">No drinks logged today.</span></div>';
+    var days=""; for(var i=0;i<7;i++){ var kk=keyMinus(i),c=entriesOn("waterBeer",kk).length,dd=new Date(kk+"T00:00:00");
+      days+='<div class="row'+(i===0?' today':'')+'"><span class="t">'+(i===0?"Today":(i===1?"Yesterday":dd.toLocaleDateString([],{weekday:"short",month:"numeric",day:"numeric"})))+'</span><span class="n">'+c+'</span></div>'; }
+    return '<details class="exp"><summary>Today’s drinks &amp; last 7 days</summary>'+list+'<div class="goal" style="margin:10px 0 4px">Last 7 days</div>'+days+'</details>';
   }
 
   /* ---------- scalar (weight) ---------- */
@@ -649,18 +707,20 @@ layout: null
   }
 
   function beerModal(t){
-    openSheet('<h2>Log a drink 🍺</h2><p class="hint">Alcohol is a diuretic, so each drink makes you pee out extra water (~10 mL per gram of alcohol). Enter the size and strength — I’ll add that water cost to today’s goal.</p>'+
+    openSheet('<h2>Log a drink 🍺</h2><p class="hint">Alcohol is a diuretic, so each drink makes you pee out extra water (~10 mL per gram of alcohol). Name it, enter the size and strength — I’ll count it and add that water cost to today’s goal.</p>'+
+      '<label class="field"><span>What is it? (optional)</span><input id="bz_name" type="text" placeholder="e.g. Vodka water, Margarita, Double IPA" /></label>'+
       '<div class="grid2"><label class="field"><span>Size (oz)</span><input id="bz_vol" type="number" inputmode="decimal" value="12" step="0.5" min="0" /></label>'+
       '<label class="field"><span>Alcohol (ABV %)</span><input id="bz_abv" type="number" inputmode="decimal" value="5" step="0.1" min="0" /></label></div>'+
       '<div class="sub" id="bz_prev" style="margin-top:0"></div>'+
       '<div class="sheet-actions" style="margin-top:14px"><button data-close="1">Cancel</button><button class="btn-primary" id="bz_save">Add drink</button></div>');
-    var vv=sheet.querySelector("#bz_vol"), aa=sheet.querySelector("#bz_abv"), pv=sheet.querySelector("#bz_prev");
-    function upd(){ var v=parseFloat(vv.value)||0, a=parseFloat(aa.value)||0, off=beerOffsetOz(v,a), g=v*29.5735*(a/100)*0.789;
-      pv.innerHTML='≈ <b>'+(Math.round(g*10)/10)+' g</b> alcohol <span class="dot">·</span> adds <b style="color:#B4740E">+'+Math.round(off)+' oz</b> water to your goal'; }
+    var nm=sheet.querySelector("#bz_name"), vv=sheet.querySelector("#bz_vol"), aa=sheet.querySelector("#bz_abv"), pv=sheet.querySelector("#bz_prev");
+    function upd(){ var v=parseFloat(vv.value)||0, a=parseFloat(aa.value)||0, off=beerOffsetOz(v,a), g=alcoholG(v,a);
+      pv.innerHTML='≈ <b>'+(Math.round(g*10)/10)+' g</b> alcohol · <b>'+(Math.round(g/14*10)/10)+'</b> std drinks <span class="dot">·</span> adds <b style="color:#B4740E">+'+Math.round(off)+' oz</b> water'; }
     vv.oninput=upd; aa.oninput=upd; upd();
     sheet.querySelector("#bz_save").onclick=function(){ var bv=parseFloat(vv.value)||0, bab=parseFloat(aa.value)||0; if(bv<=0||bab<=0){ toast("Enter size and ABV."); return; }
-      var boff=beerOffsetOz(bv,bab); pushEntry("waterBeer",todayKey(),{t:Date.now(),vol:bv,abv:bab,off:boff}); save(); closeSheet(); render(); toast("🍺 +"+Math.round(boff)+" oz water to your goal"); };
-    wireClose(); setTimeout(function(){ vv.focus(); vv.select(); }, 50);
+      var kind=(nm.value||"").trim()||"Drink", em=drinkEmoji(kind), boff=beerOffsetOz(bv,bab);
+      pushEntry("waterBeer",todayKey(),{t:Date.now(),vol:bv,abv:bab,off:boff,kind:kind,emoji:em}); save(); closeSheet(); render(); toast(em+" "+kind+" logged · +"+Math.round(boff)+" oz water"); };
+    wireClose(); setTimeout(function(){ nm.focus(); }, 50);
   }
 
   function editModal(t){
@@ -673,6 +733,7 @@ layout: null
     } else if(t.type==="scalar"){ g='<label class="field"><span>Unit</span><input id="e_unit" type="text" value="'+(t.unit||"")+'" /></label>';
     } else if(t.type==="measure"){ g='<label class="field"><span>Unit</span><input id="e_unit" type="text" value="'+(t.unit||"")+'" /></label>'+
         '<label class="field"><span>Daily goal (blank = none)</span><input id="e_goal" type="number" value="'+(t.goal!=null?t.goal:"")+'" /></label>';
+    } else if(t.type==="drinks"){ g='<label class="field"><span>Daily drink limit (blank = none)</span><input id="e_limit" type="number" value="'+(t.limit!=null?t.limit:"")+'" /></label>';
     } else {
       g='<label class="field"><span>Unit</span><input id="e_unit" type="text" value="'+(t.unit||"")+'" /></label>'+
         '<label class="field"><span>Amount added per tap</span><input id="e_step" type="number" step="0.5" min="1" value="'+(t.step||1)+'" /></label>'+
@@ -690,6 +751,7 @@ layout: null
       if(t.type==="food"){ t.goalCal=num(sheet.querySelector("#e_cal").value); t.goalP=num(sheet.querySelector("#e_p").value); t.goalC=num(sheet.querySelector("#e_c").value); t.goalF=num(sheet.querySelector("#e_f").value); }
       else if(t.type==="scalar"){ t.unit=(sheet.querySelector("#e_unit").value||"").trim(); }
       else if(t.type==="measure"){ t.unit=(sheet.querySelector("#e_unit").value||"").trim(); t.goal=numOrNull(sheet.querySelector("#e_goal").value); }
+      else if(t.type==="drinks"){ t.limit=numOrNull(sheet.querySelector("#e_limit").value); }
       else { t.unit=(sheet.querySelector("#e_unit").value||"").trim(); var st=num(sheet.querySelector("#e_step").value); t.step=st>=1?st:1; t.goal=numOrNull(sheet.querySelector("#e_goal").value); t.goalDir=sheet.querySelector("#e_dir").value; if(t.nicotine){ t.mgPerPouch=num(sheet.querySelector("#e_mg").value); t.pricePerPouch=num(sheet.querySelector("#e_price").value); } }
       save(); closeSheet(); render(); toast("Saved.");
     };
