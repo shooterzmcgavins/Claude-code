@@ -557,11 +557,32 @@ layout: null
   function num(v){ v=parseFloat(v); return isNaN(v)?0:v; }
   function numOrNull(v){ v=parseFloat(v); return isNaN(v)?null:v; }
 
+  function offFetch(url, ms){
+    var ctrl = (typeof AbortController!=="undefined") ? new AbortController() : null;
+    var to = ctrl ? setTimeout(function(){ try{ ctrl.abort(); }catch(e){} }, ms||7000) : null;
+    return fetch(url, ctrl?{signal:ctrl.signal, headers:{Accept:"application/json"}}:{headers:{Accept:"application/json"}})
+      .then(function(r){ if(to) clearTimeout(to); if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); },
+            function(e){ if(to) clearTimeout(to); throw e; });
+  }
+  function offNutr(h){
+    var n = h.nutriments || {};
+    function pick(k){ return n[k]!=null ? n[k] : h[k]; }
+    return { "energy-kcal_100g":pick("energy-kcal_100g"), proteins_100g:pick("proteins_100g"), carbohydrates_100g:pick("carbohydrates_100g"), fat_100g:pick("fat_100g") };
+  }
   function offSearch(term, cb){
-    try {
-      var url="https://world.openfoodfacts.org/cgi/search.pl?search_terms="+encodeURIComponent(term)+"&search_simple=1&action=process&json=1&page_size=20&fields=product_name,brands,serving_size,nutriments";
-      fetch(url).then(function(r){ return r.json(); }).then(function(d){ cb(null,(d&&d.products)||[]); }).catch(function(e){ cb(e); });
-    } catch(e){ cb(e); }
+    var q=encodeURIComponent(term);
+    // Primary: Open Food Facts' newer CORS-enabled full-text search service
+    var primary="https://search.openfoodfacts.org/search?q="+q+"&page_size=20&fields=product_name,brands,serving_size,nutriments";
+    // Fallback: the legacy search endpoint (often flaky / CORS-restricted)
+    var legacy="https://world.openfoodfacts.org/cgi/search.pl?search_terms="+q+"&search_simple=1&action=process&json=1&page_size=20&fields=product_name,brands,serving_size,nutriments";
+    offFetch(primary, 7000).then(function(d){
+      var hits=(d&&(d.hits||d.products))||[];
+      var mapped=hits.map(function(h){ return { product_name:h.product_name, brands:h.brands, serving_size:h.serving_size, nutriments:offNutr(h) }; });
+      if(mapped.length){ cb(null, mapped); return; }
+      throw new Error("no hits");
+    }).catch(function(){
+      offFetch(legacy, 7000).then(function(d){ cb(null,(d&&d.products)||[]); }, function(e){ cb(e); });
+    });
   }
 
   var FOOD_DB = [
