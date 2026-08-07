@@ -178,12 +178,10 @@ layout: null
 
   function defaultTrackers(){
     return [
-      { id:"food",   name:"Food",   emoji:"🍽️", type:"food", goalCal:2000, goalP:200, goalC:165, goalF:60 },
       { id:"zyn",    name:"Zyn",    emoji:"🚭", type:"counter", unit:"pouches", goalDir:"down", goal:null, nicotine:true, forecast:true, mgPerPouch:3, pricePerPouch:0 },
       { id:"water",  name:"Water",  emoji:"💧", type:"measure", unit:"oz", goal:128, quick:[8,12,16,20,24], beerOffset:true },
       { id:"drinks", name:"Drinks", emoji:"🍻", type:"drinks", limit:3 },
-      { id:"coffee", name:"Coffee", emoji:"☕", type:"counter", unit:"cups", goalDir:"down", goal:3 },
-      { id:"weight", name:"Weight", emoji:"⚖️", type:"scalar", unit:"lb" }
+      { id:"coffee", name:"Coffee", emoji:"☕", type:"counter", unit:"cups", goalDir:"down", goal:3 }
     ];
   }
 
@@ -225,8 +223,11 @@ layout: null
           }
           s.drinksTracker1 = true;
         }
-        // ensure Food is first for the MFP-style dashboard layout
-        s.trackers.sort(function(a,b){ return (a.id==="food"?-1:0) - (b.id==="food"?-1:0); });
+        if (!s.removeFoodWeight1) {
+          // Food & weight now live in a dedicated app; hide those cards (data kept in case of re-add)
+          s.trackers = s.trackers.filter(function(t){ return t.id!=="food" && t.id!=="weight"; });
+          s.removeFoodWeight1 = true;
+        }
         return s;
       }
     } catch(e) {}
