@@ -579,9 +579,15 @@ layout: null
       var hits=(d&&(d.hits||d.products))||[];
       var mapped=hits.map(function(h){ return { product_name:h.product_name, brands:h.brands, serving_size:h.serving_size, nutriments:offNutr(h) }; });
       if(mapped.length){ cb(null, mapped); return; }
-      throw new Error("no hits");
-    }).catch(function(){
-      offFetch(legacy, 7000).then(function(d){ cb(null,(d&&d.products)||[]); }, function(e){ cb(e); });
+      throw new Error("0 results");
+    }).catch(function(e1){
+      offFetch(legacy, 7000).then(function(d){
+        var ps=(d&&d.products)||[];
+        if(ps.length){ cb(null, ps); return; }
+        cb(new Error("new:"+(e1&&e1.message)+" · old:0 results"));
+      }, function(e2){
+        cb(new Error("new:"+(e1&&e1.message||e1)+" · old:"+(e2&&e2.message||e2)));
+      });
     });
   }
 
@@ -666,7 +672,7 @@ layout: null
         var seq=++offSeq; online.innerHTML='<div class="off-note">Searching Open Food Facts…</div>';
         offSearch(term, function(err, prods){
           if(seq!==offSeq) return;
-          if(err){ online.innerHTML='<div class="off-note">Couldn’t reach the online database — built-in foods &amp; manual entry still work.</div>'; return; }
+          if(err){ online.innerHTML='<div class="off-note">Online search unavailable — '+esc(err&&err.message||"unknown")+'. Built-in foods &amp; manual entry still work.</div>'; return; }
           var usable=prods.filter(function(pd){ var n=pd.nutriments||{}; return pd.product_name && n["energy-kcal_100g"]!=null; }).slice(0,15);
           online._prods=usable;
           if(!usable.length){ online.innerHTML='<div class="off-note">No online matches for “'+esc(term)+'”.</div>'; return; }
