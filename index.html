@@ -180,8 +180,7 @@ layout: null
     return [
       { id:"zyn",    name:"Zyn",    emoji:"🚭", type:"counter", unit:"pouches", goalDir:"down", goal:null, nicotine:true, forecast:true, mgPerPouch:3, pricePerPouch:0 },
       { id:"water",  name:"Water",  emoji:"💧", type:"measure", unit:"oz", goal:128, quick:[8,12,16,20,24], beerOffset:true },
-      { id:"drinks", name:"Drinks", emoji:"🍻", type:"drinks", limit:3 },
-      { id:"coffee", name:"Coffee", emoji:"☕", type:"counter", unit:"cups", goalDir:"down", goal:3 }
+      { id:"drinks", name:"Drinks", emoji:"🍻", type:"drinks", limit:3 }
     ];
   }
 
@@ -227,6 +226,10 @@ layout: null
           // Food & weight now live in a dedicated app; hide those cards (data kept in case of re-add)
           s.trackers = s.trackers.filter(function(t){ return t.id!=="food" && t.id!=="weight"; });
           s.removeFoodWeight1 = true;
+        }
+        if (!s.removeCoffee1) {
+          s.trackers = s.trackers.filter(function(t){ return t.id!=="coffee"; });
+          s.removeCoffee1 = true;
         }
         return s;
       }
